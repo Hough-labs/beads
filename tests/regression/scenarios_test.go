@@ -124,7 +124,6 @@ func TestUpdateFieldPreservation(t *testing.T) {
 // Caught a new regression: spec_id is stored by v0.49.6 but silently lost
 // in main's Dolt backend (external_ref works fine in both).
 func TestExternalRefSpecID(t *testing.T) {
-	t.Skip("known regression: bd-wzgir — spec_id dropped by Dolt backend UpdateIssue")
 	compareExports(t, func(w *workspace) {
 		id := w.create("--title", "Tracked externally", "--type", "task")
 
