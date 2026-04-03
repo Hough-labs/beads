@@ -1,0 +1,270 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"slices"
+	"strings"
+
+	"github.com/spf13/cobra"
+	"github.com/steveyegge/beads/internal/types"
+	"github.com/steveyegge/beads/internal/ui"
+)
+
+var reqCmd = &cobra.Command{
+	Use:     "req <bead-id> <requirement-id> [requirement-id...]",
+	GroupID: "issues",
+	Short:   "Link beads to requirement IDs",
+	Long: `Link one or more requirement IDs to a bead.
+
+Sets the spec_id field to the first requirement ID. If multiple IDs are
+provided, all are stored in metadata.requirements.
+
+Examples:
+  bd req bd-abc R-001                  # Link single requirement
+  bd req bd-abc R-001 R-002 R-003      # Link multiple requirements
+  bd req list bd-abc                    # Show linked requirements
+  bd req find R-001                     # Find beads linked to R-001`,
+	Args: cobra.MinimumNArgs(2),
+	Run:  reqLinkRun,
+}
+
+var reqListCmd = &cobra.Command{
+	Use:   "list <bead-id>",
+	Short: "Show requirements linked to a bead",
+	Args:  cobra.ExactArgs(1),
+	Run:   reqListRun,
+}
+
+var reqFindCmd = &cobra.Command{
+	Use:   "find <requirement-id>",
+	Short: "Find beads linked to a requirement",
+	Args:  cobra.ExactArgs(1),
+	Run:   reqFindRun,
+}
+
+func reqLinkRun(_ *cobra.Command, args []string) {
+	CheckReadonly("req")
+
+	beadID := args[0]
+	reqIDs := args[1:]
+	ctx := rootCtx
+
+	// Resolve the bead ID.
+	result, err := resolveAndGetIssueWithRouting(ctx, store, beadID)
+	if err != nil {
+		FatalErrorRespectJSON("resolving %s: %v", beadID, err)
+	}
+	if result == nil || result.Issue == nil {
+		FatalErrorRespectJSON("issue %s not found", beadID)
+	}
+	defer result.Close()
+
+	issue := result.Issue
+	issueStore := result.Store
+
+	// Check if already linked with exactly these requirements (idempotent).
+	existing := getLinkedRequirements(issue)
+	if sameStringSet(existing, reqIDs) {
+		if jsonOutput {
+			outputJSON(map[string]any{
+				"status":       "no-op",
+				"issue_id":     result.ResolvedID,
+				"requirements": reqIDs,
+			})
+		} else {
+			fmt.Printf("%s Already linked: %s → %s\n",
+				ui.RenderPass("✓"), result.ResolvedID, strings.Join(reqIDs, ", "))
+		}
+		return
+	}
+
+	// Build updates: spec_id = first requirement.
+	updates := map[string]any{
+		"spec_id": reqIDs[0],
+	}
+
+	// If multiple requirements, store all in metadata.requirements.
+	if len(reqIDs) > 1 {
+		reqJSON, _ := json.Marshal(reqIDs)
+		metaObj := map[string]json.RawMessage{
+			"requirements": json.RawMessage(reqJSON),
+		}
+		// Merge with existing metadata.
+		if len(issue.Metadata) > 0 {
+			var existing map[string]json.RawMessage
+			if err := json.Unmarshal(issue.Metadata, &existing); err == nil {
+				for k, v := range existing {
+					if k != "requirements" {
+						metaObj[k] = v
+					}
+				}
+			}
+		}
+		metaBytes, _ := json.Marshal(metaObj)
+		updates["metadata"] = json.RawMessage(metaBytes)
+	}
+
+	if err := issueStore.UpdateIssue(ctx, result.ResolvedID, updates, actor); err != nil {
+		FatalErrorRespectJSON("updating %s: %v", result.ResolvedID, err)
+	}
+
+	if isEmbeddedMode() && issueStore != nil {
+		if _, err := issueStore.CommitPending(ctx, actor); err != nil {
+			FatalErrorRespectJSON("failed to commit: %v", err)
+		}
+	}
+
+	SetLastTouchedID(result.ResolvedID)
+
+	if jsonOutput {
+		outputJSON(map[string]any{
+			"status":       "linked",
+			"issue_id":     result.ResolvedID,
+			"requirements": reqIDs,
+		})
+	} else {
+		fmt.Printf("%s Linked: %s → %s\n",
+			ui.RenderPass("✓"), formatFeedbackIDParen(result.ResolvedID, issue.Title), strings.Join(reqIDs, ", "))
+	}
+}
+
+func reqListRun(_ *cobra.Command, args []string) {
+	beadID := args[0]
+	ctx := rootCtx
+
+	result, err := resolveAndGetIssueWithRouting(ctx, store, beadID)
+	if err != nil {
+		FatalErrorRespectJSON("resolving %s: %v", beadID, err)
+	}
+	if result == nil || result.Issue == nil {
+		FatalErrorRespectJSON("issue %s not found", beadID)
+	}
+	defer result.Close()
+
+	reqs := getLinkedRequirements(result.Issue)
+
+	if jsonOutput {
+		outputJSON(map[string]any{
+			"issue_id":     result.ResolvedID,
+			"requirements": reqs,
+		})
+	} else {
+		if len(reqs) == 0 {
+			fmt.Printf("No requirements linked to %s\n", result.ResolvedID)
+		} else {
+			fmt.Printf("Requirements for %s:\n", formatFeedbackIDParen(result.ResolvedID, result.Issue.Title))
+			for _, r := range reqs {
+				fmt.Printf("  %s\n", r)
+			}
+		}
+	}
+}
+
+func reqFindRun(_ *cobra.Command, args []string) {
+	reqID := args[0]
+	ctx := rootCtx
+
+	// Search by spec_id prefix.
+	filter := types.IssueFilter{
+		SpecIDPrefix: reqID,
+		Limit:        0, // no limit
+	}
+	issues, err := store.SearchIssues(ctx, "", filter)
+	if err != nil {
+		FatalErrorRespectJSON("searching: %v", err)
+	}
+
+	// Also check metadata.requirements for issues that have this reqID
+	// as a secondary requirement (not in spec_id).
+	allFilter := types.IssueFilter{
+		HasMetadataKey: "requirements",
+		Limit:          0,
+	}
+	metaIssues, err := store.SearchIssues(ctx, "", allFilter)
+	if err != nil {
+		// Non-fatal: spec_id results still useful.
+		fmt.Fprintf(os.Stderr, "Warning: metadata search failed: %v\n", err)
+	}
+
+	// Merge results, dedup by ID.
+	seen := make(map[string]bool)
+	var results []*types.Issue
+	for _, issue := range issues {
+		seen[issue.ID] = true
+		results = append(results, issue)
+	}
+	for _, issue := range metaIssues {
+		if seen[issue.ID] {
+			continue
+		}
+		reqs := getLinkedRequirements(issue)
+		if slices.Contains(reqs, reqID) {
+			seen[issue.ID] = true
+			results = append(results, issue)
+		}
+	}
+
+	if jsonOutput {
+		outputJSON(results)
+	} else {
+		if len(results) == 0 {
+			fmt.Printf("No beads linked to requirement %s\n", reqID)
+			os.Exit(1)
+		}
+		fmt.Printf("Beads linked to %s:\n", reqID)
+		for _, issue := range results {
+			fmt.Printf("  %s  %s  [%s]\n",
+				issue.ID, issue.Title, issue.Status)
+		}
+	}
+}
+
+// getLinkedRequirements returns all requirement IDs linked to an issue,
+// combining spec_id and metadata.requirements.
+func getLinkedRequirements(issue *types.Issue) []string {
+	var reqs []string
+
+	// Check metadata.requirements first (authoritative if present).
+	if len(issue.Metadata) > 0 {
+		var meta map[string]json.RawMessage
+		if err := json.Unmarshal(issue.Metadata, &meta); err == nil {
+			if raw, ok := meta["requirements"]; ok {
+				var metaReqs []string
+				if err := json.Unmarshal(raw, &metaReqs); err == nil && len(metaReqs) > 0 {
+					return metaReqs
+				}
+			}
+		}
+	}
+
+	// Fall back to spec_id alone.
+	if issue.SpecID != "" {
+		reqs = append(reqs, issue.SpecID)
+	}
+	return reqs
+}
+
+// sameStringSet returns true if a and b contain the same strings (order-independent).
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	set := make(map[string]bool, len(a))
+	for _, s := range a {
+		set[s] = true
+	}
+	for _, s := range b {
+		if !set[s] {
+			return false
+		}
+	}
+	return true
+}
+
+func init() {
+	reqCmd.AddCommand(reqListCmd)
+	reqCmd.AddCommand(reqFindCmd)
+	rootCmd.AddCommand(reqCmd)
+}
