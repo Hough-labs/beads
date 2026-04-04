@@ -110,7 +110,7 @@ func reqLinkRun(_ *cobra.Command, args []string) {
 		FatalErrorRespectJSON("updating %s: %v", result.ResolvedID, err)
 	}
 
-	if isEmbeddedMode() && issueStore != nil {
+	if !usesSQLServer() && issueStore != nil {
 		if _, err := issueStore.CommitPending(ctx, actor); err != nil {
 			FatalErrorRespectJSON("failed to commit: %v", err)
 		}

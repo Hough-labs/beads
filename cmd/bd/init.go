@@ -259,6 +259,24 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
 			initServerMode = true
 		}
 
+		// Auto-detect server mode when not explicitly configured.
+		// On Linux, checks BEADS_DOLT_HOST env var and probes the k8s Dolt
+		// endpoint so agents can run bd init (or bd ready) without extra flags.
+		if !initServerMode {
+			if detected, detHost, detPort, detUser := detectServerMode(); detected {
+				initServerMode = true
+				if serverHost == "" {
+					serverHost = detHost
+				}
+				if serverPort == 0 {
+					serverPort = detPort
+				}
+				if serverUser == "" {
+					serverUser = detUser
+				}
+			}
+		}
+
 		// Set serverMode so !usesSQLServer() returns the correct value.
 		// Both the global and cmdCtx must be set because PersistentPreRun
 		// creates a fresh cmdCtx (with ServerMode=false) before Run executes.
@@ -622,7 +640,7 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
 			gitignorePath := filepath.Join(beadsDir, ".gitignore")
 			check := doctor.CheckGitignore(cwd)
 			if check.Status != "ok" {
-				if err := os.WriteFile(gitignorePath, []byte(doctor.GitignoreTemplate), 0600); err != nil {
+				if err := os.WriteFile(gitignorePath, []byte(doctor.GitignoreTemplate), 0o600); err != nil {
 					fmt.Fprintf(os.Stderr, "Warning: failed to create/update .gitignore: %v\n", err)
 					// Non-fatal - continue anyway
 				}
@@ -647,7 +665,7 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
 			interactionsPath := filepath.Join(beadsDir, "interactions.jsonl")
 			if _, err := os.Stat(interactionsPath); os.IsNotExist(err) {
 				// nolint:gosec // G306: JSONL file needs to be readable by other tools
-				if err := os.WriteFile(interactionsPath, []byte{}, 0644); err != nil {
+				if err := os.WriteFile(interactionsPath, []byte{}, 0o644); err != nil {
 					fmt.Fprintf(os.Stderr, "Warning: failed to create interactions.jsonl: %v\n", err)
 					// Non-fatal - continue anyway
 				}
@@ -1692,7 +1710,7 @@ func migrateOldDatabases(targetPath string, quiet bool) error {
 	}
 
 	// Create .beads directory if it doesn't exist
-	if err := os.MkdirAll(targetDir, 0750); err != nil {
+	if err := os.MkdirAll(targetDir, 0o750); err != nil {
 		return fmt.Errorf("failed to create .beads directory: %w", err)
 	}
 
