@@ -250,11 +250,23 @@ func repairPrefixes(ctx context.Context, st storage.DoltStorage, actorName strin
 		usedIDs[issue.ID] = true
 	}
 
-	// Generate hash IDs for all incorrect issues
+	// Generate new IDs for all incorrect issues. Prefer the semantic mapping
+	// `<targetPrefix>-<suffix>` (where <suffix> is whatever followed the old
+	// prefix and its hyphen) so that meaningful IDs like `ba-rig-bastion`
+	// become `bastion-rig-bastion` instead of an opaque hash. Fall back to a
+	// content-hash ID only when the semantic name would collide with an
+	// already-used ID in this batch.
 	for _, is := range incorrectIssues {
-		newID, err := generateRepairHashID(targetPrefix, is.issue, actorName, usedIDs)
-		if err != nil {
-			return fmt.Errorf("failed to generate hash ID for %s: %w", is.issue.ID, err)
+		var newID string
+		semantic := targetPrefix + "-" + strings.TrimPrefix(is.issue.ID, is.prefix+"-")
+		if !usedIDs[semantic] && semantic != targetPrefix+"-" {
+			newID = semantic
+		} else {
+			hashed, err := generateRepairHashID(targetPrefix, is.issue, actorName, usedIDs)
+			if err != nil {
+				return fmt.Errorf("failed to generate hash ID for %s: %w", is.issue.ID, err)
+			}
+			newID = hashed
 		}
 		renameMap[is.issue.ID] = newID
 		usedIDs[newID] = true
@@ -361,6 +373,13 @@ func renamePrefixInDB(ctx context.Context, oldPrefix, newPrefix string, issues [
 
 	for _, issue := range issues {
 		oldID := issue.ID
+		// Skip issues that don't actually have the old prefix. Without this
+		// guard, mixed-state databases (e.g. after a partially-applied repair
+		// left some rows already on the new prefix) would get the new prefix
+		// prepended a second time, producing IDs like 'bastion-bastion-foo'.
+		if !strings.HasPrefix(oldID, oldPrefix+"-") {
+			continue
+		}
 		numPart := strings.TrimPrefix(oldID, oldPrefix+"-")
 		newID := fmt.Sprintf("%s-%s", newPrefix, numPart)
 

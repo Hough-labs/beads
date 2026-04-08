@@ -221,3 +221,76 @@ func TestRenamePrefixInDB(t *testing.T) {
 		t.Errorf("Expected ID 'new-1', got %q", newIssue.ID)
 	}
 }
+
+// TestRenamePrefixInDBSkipsAlreadyMigrated is a regression test for a bug
+// where renamePrefixInDB iterated every issue and unconditionally prepended
+// the new prefix, even on issues whose ID already started with the new
+// prefix. In a partially-migrated database (e.g. left over from a failed
+// repair) that produced double-prefixed IDs like 'bastion-bastion-foo'.
+func TestRenamePrefixInDBSkipsAlreadyMigrated(t *testing.T) {
+	tmpDir := t.TempDir()
+	testDBPath := filepath.Join(tmpDir, "test.db")
+
+	testStore, err := dolt.New(context.Background(), &dolt.Config{Path: testDBPath})
+	if err != nil {
+		t.Skipf("skipping: Dolt server not available: %v", err)
+	}
+	t.Cleanup(func() {
+		testStore.Close()
+		os.Remove(testDBPath)
+	})
+
+	ctx := context.Background()
+	store = testStore
+	actor = "test-actor"
+
+	if err := testStore.SetConfig(ctx, "issue_prefix", "ba"); err != nil {
+		t.Fatalf("set config: %v", err)
+	}
+
+	// Mixed state: one issue still on the old short prefix and one already
+	// migrated to the new long prefix (which is a strict superstring of the
+	// old). The buggy implementation rewrote the migrated row to
+	// 'bastion-bastion-already' and corrupted the database.
+	stale := &types.Issue{
+		ID:        "ba-stale",
+		Title:     "stale",
+		Status:    types.StatusOpen,
+		Priority:  2,
+		IssueType: types.TypeTask,
+	}
+	already := &types.Issue{
+		ID:        "bastion-already",
+		Title:     "already migrated",
+		Status:    types.StatusOpen,
+		Priority:  2,
+		IssueType: types.TypeTask,
+	}
+	if err := testStore.CreateIssue(ctx, stale, "test"); err != nil {
+		t.Fatalf("create stale: %v", err)
+	}
+	if err := testStore.CreateIssue(ctx, already, "test"); err != nil {
+		t.Fatalf("create already: %v", err)
+	}
+
+	if err := renamePrefixInDB(ctx, "ba", "bastion", []*types.Issue{stale, already}); err != nil {
+		t.Fatalf("renamePrefixInDB failed: %v", err)
+	}
+
+	// Stale row should now exist as bastion-stale.
+	got, err := testStore.GetIssue(ctx, "bastion-stale")
+	if err != nil || got == nil {
+		t.Fatalf("expected bastion-stale to exist, got err=%v issue=%v", err, got)
+	}
+
+	// Already-migrated row must still exist with its original ID, NOT
+	// double-prefixed as 'bastion-bastion-already'.
+	got, err = testStore.GetIssue(ctx, "bastion-already")
+	if err != nil || got == nil {
+		t.Fatalf("expected bastion-already to survive untouched, got err=%v issue=%v", err, got)
+	}
+	doubled, _ := testStore.GetIssue(ctx, "bastion-bastion-already")
+	if doubled != nil {
+		t.Fatalf("regression: rename produced double-prefixed ID %q", doubled.ID)
+	}
+}
