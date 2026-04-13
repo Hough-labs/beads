@@ -265,6 +265,12 @@ func loadServerModeFromBeadsDir(beadsDir string) {
 	if !sm && !psm && doltserver.IsSharedServerMode() {
 		sm = true
 	}
+	// config.yaml dolt.mode override for stale metadata.json dolt_mode=embedded.
+	// When a user sets dolt.mode: "server" in config.yaml, honor it even if
+	// metadata.json was not updated (e.g. bd init --force without --server).
+	if !sm && strings.EqualFold(config.GetYamlConfig("dolt.mode"), "server") {
+		sm = true
+	}
 	serverMode = sm
 	proxiedServerMode = psm
 	if cmdCtx != nil {
@@ -974,6 +980,10 @@ var rootCmd = &cobra.Command{
 			// embedded — handles installs created before GH#2946 fix. Skip
 			// this for proxied-server: it's its own backend, not server.
 			if !doltCfg.ServerMode && !doltCfg.ProxiedServer && doltserver.IsSharedServerMode() {
+				doltCfg.ServerMode = true
+			}
+			// config.yaml dolt.mode override for stale metadata.json.
+			if !doltCfg.ServerMode && strings.EqualFold(config.GetYamlConfig("dolt.mode"), "server") {
 				doltCfg.ServerMode = true
 			}
 			serverMode = doltCfg.ServerMode

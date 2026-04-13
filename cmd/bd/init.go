@@ -1112,6 +1112,11 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
 					cfg.DoltMode = configfile.DoltModeProxiedServer
 				case usesSQLServer():
 					cfg.DoltMode = configfile.DoltModeServer
+				case strings.EqualFold(config.GetYamlConfig("dolt.mode"), "server"):
+					// config.yaml dolt.mode=server overrides a stale embedded
+					// metadata.json: honor server intent even when the --server
+					// flag is absent (bd init --force without --server).
+					cfg.DoltMode = configfile.DoltModeServer
 				default:
 					cfg.DoltMode = configfile.DoltModeEmbedded
 				}
