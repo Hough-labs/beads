@@ -63,7 +63,7 @@ Append `--json` to any command for structured output. Use `bd show <id> --long` 
 
 | Error | Fix |
 |-------|-----|
-| `database not found` | `bd init <prefix>` in project root |
+| `database not found` | Check `.beads/metadata.json` exists and `dolt_mode` matches `config.yaml`. Do NOT run `bd init` — it overwrites server config. |
 | `not in a git repository` | `git init` first |
 | `disk I/O error (522)` | Move `.beads/` off cloud-synced filesystem |
 | Status updates lag | Use server mode: `bd dolt start` |
