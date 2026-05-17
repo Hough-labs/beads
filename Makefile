@@ -9,7 +9,7 @@ SHELL := $(subst cmd,bin,$(subst git.exe,bash.exe,$(GIT_BASH)))
 endif
 endif
 
-.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean clean-test-tmp install install-force help check-up-to-date fmt fmt-check patches upgrade
+.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean clean-test-tmp install install-force help check-up-to-date fmt fmt-check patches upgrade update-hooks update-hooks-dry-run
 
 # Default target
 all: build
@@ -234,6 +234,19 @@ patches:
 upgrade:
 	@bash scripts/upgrade-anvil.sh
 
+# Refresh bd hooks in every repo with a .beads/ dir under ~/.* and ~/code/*.
+# Useful after a bd binary upgrade so per-repo shims stay consistent. The fix
+# itself lives in the bd binary (shims dispatch to `bd hooks run`), so the
+# binary upgrade is what carries new behavior; this target re-asserts hook
+# presence and refreshes shim version strings across the machine.
+#   make update-hooks            - Do it
+#   make update-hooks-dry-run    - Show what would be done, change nothing
+update-hooks:
+	@bash scripts/update-beads-hooks.sh
+
+update-hooks-dry-run:
+	@bash scripts/update-beads-hooks.sh --dry-run
+
 # Show help
 help:
 	@echo "Beads Makefile targets:"
@@ -256,4 +269,6 @@ help:
 	@echo "  make clean-test-tmp - Sweep orphaned cmd/bd test temp dirs from \$$TMPDIR"
 	@echo "  make patches      - Export local commits to patches/ directory"
 	@echo "  make upgrade      - Fetch upstream, reset, replay patches/"
+	@echo "  make update-hooks - Refresh bd hooks in every repo with a .beads/ dir under ~/.* and ~/code/*"
+	@echo "  make update-hooks-dry-run - Show what update-hooks would do, change nothing"
 	@echo "  make help         - Show this help message"
