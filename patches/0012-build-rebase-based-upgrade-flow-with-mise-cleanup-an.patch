@@ -1,37 +1,93 @@
-From f54f7979dec945621ab08d41b81d7fe6f9e684d3 Mon Sep 17 00:00:00 2001
+From 60ab97eb7428662d109eec73d035e7e82b635839 Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
-Date: Mon, 20 Apr 2026 13:51:53 -0400
-Subject: [PATCH 21/21] build: rebase-based upgrade, robust anvil sync
+Date: Sun, 31 May 2026 14:59:09 -0400
+Subject: [PATCH 12/17] build: rebase-based upgrade flow with mise cleanup and
+ patch-system fixes
 
-Port gastown's infra improvements to beads:
+Squashed upgrade-tooling refinements:
+- sweep mise cleanup; trigger Anvil rebuild from pre-push
+- eliminate recursive patch self-inclusion + pre-push amend bug
+- copy patches to tmpdir before reset
+- rebase-based upgrade, robust anvil sync
 
-- scripts/upgrade-anvil.sh: use 'git rebase upstream/main' instead of
-  a destructive reset + 'git am' so local commit history is preserved
-  and 'rebase --abort' is a safe bail-out. Regenerates patches/ and
-  auto-amends tip commit when SHAs rotate. Interactive push prompt at
-  the end.
-
-- .githooks/pre-push: pipe the remote deploy script to 'ssh anvil bash -s'
-  (anvil's default shell is fish, which cannot parse bash) and propagate
-  the ssh exit code to the sync log so silent failures stop being silent.
-
-No local history rewrite beyond the rebase itself; remote anvil still
-mirrors origin via ssh, which is required to keep it in sync.
-
-Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 ---
- .githooks/pre-push       | 20 +++++++--
- scripts/upgrade-anvil.sh | 92 ++++++++++++++++++++--------------------
- 2 files changed, 64 insertions(+), 48 deletions(-)
+ .githooks/pre-push       | 82 ++++++++++++++++++++++++++++++++++----
+ Makefile                 | 13 ++----
+ scripts/upgrade-anvil.sh | 86 ++++++++++++++++++++++------------------
+ 3 files changed, 125 insertions(+), 56 deletions(-)
 
 diff --git a/.githooks/pre-push b/.githooks/pre-push
-index 099eb875..a82b31fb 100755
+index c45d8f1e6..a82b31fb1 100755
 --- a/.githooks/pre-push
 +++ b/.githooks/pre-push
-@@ -56,13 +56,27 @@ if [ "$(uname -s)" = "Darwin" ]; then
-     (
-         exec >>"$LOG" 2>&1
-         echo "[$(date '+%F %T')] beads sync-anvil: waiting for origin/anvil to reach $EXPECTED_SHA"
+@@ -1,6 +1,6 @@
+ #!/usr/bin/env bash
+-# Pre-push hook: on anvil branch, regenerate patches/ and fold into HEAD.
+-# Ensures patches/ always reflects the current divergence before pushing.
++# Pre-push hook: on anvil branch, validate patches/ is current, rebuild+install
++# locally, then kick off a remote rebuild on Anvil so both machines converge.
+ # Installed via: git config core.hooksPath .githooks (run by make install)
+ 
+ set -euo pipefail
+@@ -8,14 +8,80 @@ set -euo pipefail
+ BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null) || exit 0
+ [ "$BRANCH" = "anvil" ] || exit 0
+ 
+-make patches --quiet
+-
+-if ! git diff --quiet patches/; then
+-    git add patches/
+-    git commit --amend --no-edit --quiet
+-    echo "pre-push: patches/ refreshed and folded into HEAD"
++# --- Validate patches/ is up-to-date ---
++TMPDIR=$(mktemp -d)
++trap 'rm -rf "$TMPDIR"' EXIT
++git format-patch upstream/main..HEAD --output-directory "$TMPDIR" -- . ':!patches/' >/dev/null 2>&1
++# Compare patch count and diff bodies, ignoring "From <sha>" headers which
++# change on every amend.
++EXPECTED=$(ls "$TMPDIR"/*.patch 2>/dev/null | wc -l | tr -d ' ')
++ACTUAL=$(ls patches/*.patch 2>/dev/null | wc -l | tr -d ' ')
++if [ "$EXPECTED" != "$ACTUAL" ]; then
++    rm -rf "$TMPDIR"
++    echo ""
++    echo "pre-push: patches/ has $ACTUAL patches but $EXPECTED expected. Run:"
++    echo "  make patches && git add patches/ && git commit --amend --no-edit"
++    echo "Then push again."
++    exit 1
++fi
++# Compare diff bodies (skip From line which contains the commit SHA)
++STALE=0
++for f in "$TMPDIR"/*.patch; do
++    base=$(basename "$f")
++    if [ ! -f "patches/$base" ] || ! diff <(tail -n +2 "patches/$base") <(tail -n +2 "$f") >/dev/null 2>&1; then
++        STALE=1
++        break
++    fi
++done
++if [ "$STALE" = "1" ]; then
++    echo ""
++    echo "pre-push: patches/ is stale. Run:"
++    echo "  make patches && git add patches/ && git commit --amend --no-edit"
++    echo "Then push again."
++    exit 1
+ fi
+ 
+ # --- Build and install to ~/go/bin ---
+ echo "beads: rebuilding and installing to ~/go/bin..."
+ make install-force
++
++# --- Sync to Anvil ---
++# Only trigger from Hammer (Darwin). Background job polls origin/anvil until
++# it sees our pushed SHA, then SSHes anvil to pull+build. Failure is logged,
++# not fatal — the local push still succeeds.
++if [ "$(uname -s)" = "Darwin" ]; then
++    EXPECTED_SHA=$(git rev-parse HEAD)
++    LOG="$HOME/.cache/sync-anvil.log"
++    mkdir -p "$(dirname "$LOG")"
++    (
++        exec >>"$LOG" 2>&1
++        echo "[$(date '+%F %T')] beads sync-anvil: waiting for origin/anvil to reach $EXPECTED_SHA"
 +        # Remote script: pull, rebuild, install. Piped to bash -s because anvil's
 +        # default login shell is fish, which can't parse POSIX/bash scripts.
 +        REMOTE_CMD='
@@ -41,13 +97,10 @@ index 099eb875..a82b31fb 100755
 +git reset --hard origin/anvil --quiet
 +make install-force
 +'
-         for _ in $(seq 1 30); do
-             REMOTE_SHA=$(git ls-remote --quiet origin refs/heads/anvil 2>/dev/null | awk '{print $1}')
-             if [ "$REMOTE_SHA" = "$EXPECTED_SHA" ]; then
-                 echo "[$(date '+%F %T')] beads sync-anvil: origin reached $EXPECTED_SHA — triggering remote build"
--                ssh -o BatchMode=yes anvil "cd ~/code/forks/gastownhall/beads && git fetch origin anvil --quiet && git reset --hard origin/anvil --quiet && make install-force"
--                echo "[$(date '+%F %T')] beads sync-anvil: done"
--                exit 0
++        for _ in $(seq 1 30); do
++            REMOTE_SHA=$(git ls-remote --quiet origin refs/heads/anvil 2>/dev/null | awk '{print $1}')
++            if [ "$REMOTE_SHA" = "$EXPECTED_SHA" ]; then
++                echo "[$(date '+%F %T')] beads sync-anvil: origin reached $EXPECTED_SHA — triggering remote build"
 +                printf '%s\n' "$REMOTE_CMD" | ssh -o BatchMode=yes anvil bash -s
 +                RC=$?
 +                if [ "$RC" -eq 0 ]; then
@@ -56,11 +109,52 @@ index 099eb875..a82b31fb 100755
 +                    echo "[$(date '+%F %T')] beads sync-anvil: remote deploy failed (rc=$RC)"
 +                fi
 +                exit "$RC"
-             fi
-             sleep 2
-         done
++            fi
++            sleep 2
++        done
++        echo "[$(date '+%F %T')] beads sync-anvil: timeout — origin/anvil did not advance. Run manually on anvil: cd ~/code/forks/gastownhall/beads && git pull && make install-force"
++    ) </dev/null &
++    disown
++    echo "pre-push: anvil sync backgrounded (tail $LOG for progress)"
++fi
+diff --git a/Makefile b/Makefile
+index 3856e7de0..5b5fa0cb5 100644
+--- a/Makefile
++++ b/Makefile
+@@ -161,19 +161,14 @@ else
+ 	@rm -f $(INSTALL_DIR)/beads
+ 	@ln -sf bd $(INSTALL_DIR)/beads
+ 	@echo "Created 'beads' alias -> bd"
+-	@# Clean stale copies from previous install locations (including mise Go paths)
++	@# Sweep stale binaries from the upstream default install location.
++	@# -e || -L catches dangling symlinks too (e.g. beads -> bd after bd was removed).
+ 	@for stale in $(HOME)/.local/bin/bd $(HOME)/.local/bin/beads; do \
+-		if [ -f "$$stale" ] && [ "$$stale" != "$(INSTALL_DIR)/bd" ] && [ "$$stale" != "$(INSTALL_DIR)/beads" ]; then \
++		if { [ -e "$$stale" ] || [ -L "$$stale" ]; } && [ "$$stale" != "$(INSTALL_DIR)/bd" ] && [ "$$stale" != "$(INSTALL_DIR)/beads" ]; then \
+ 			echo "Removing stale $$stale"; \
+ 			rm -f "$$stale"; \
+ 		fi; \
+ 	done
+-	@for stale in $(HOME)/.local/share/mise/installs/go/*/bin/bd; do \
+-		if [ -f "$$stale" ] || [ -L "$$stale" ]; then \
+-			echo "Removing stale mise binary $$stale"; \
+-			rm -f "$$stale"; \
+-		fi; \
+-	done
+ endif
+ 	@git config core.hooksPath .githooks 2>/dev/null && echo "Configured git hooks (.githooks/)" || true
+ 
+@@ -218,7 +213,7 @@ clean:
+ patches:
+ 	@echo "Exporting patches from anvil -> upstream/main divergence..."
+ 	@rm -f patches/*.patch
+-	@git format-patch upstream/main..HEAD --output-directory patches/
++	@git format-patch upstream/main..HEAD --output-directory patches/ -- . ':!patches/'
+ 	@echo "Patches written to patches/:"
+ 	@ls patches/*.patch 2>/dev/null | sed 's|patches/||'
+ 
 diff --git a/scripts/upgrade-anvil.sh b/scripts/upgrade-anvil.sh
-index de571b54..9350f10d 100755
+index 5ce287fae..9350f10da 100755
 --- a/scripts/upgrade-anvil.sh
 +++ b/scripts/upgrade-anvil.sh
 @@ -1,15 +1,18 @@
@@ -101,7 +195,7 @@ index de571b54..9350f10d 100755
  
  if [ "$INCOMING_COUNT" -eq 0 ]; then
      ok "Already up to date with upstream/main"
-@@ -53,66 +56,65 @@ fi
+@@ -53,60 +56,65 @@ fi
  
  echo ""
  echo -e "${BLU}Incoming from upstream ($INCOMING_COUNT commits):${RST}"
@@ -111,12 +205,6 @@ index de571b54..9350f10d 100755
  echo ""
  
 -# ── Reset and replay ─────────────────────────────────────────────────────────
--
--# Copy patches to tmpdir BEFORE reset — reset wipes patches/ since upstream
--# doesn't track it.
--PATCH_TMPDIR=$(mktemp -d)
--trap 'rm -rf "$PATCH_TMPDIR"' EXIT
--cp -f patches/*.patch "$PATCH_TMPDIR/"
 -
 -info "Resetting anvil to upstream/main..."
 -git reset --hard upstream/main --quiet
@@ -128,7 +216,7 @@ index de571b54..9350f10d 100755
 +# ── Rebase local patches onto upstream/main ──────────────────────────────────
  
 -PATCH_NUM=0
--for patch in "$PATCH_TMPDIR"/*.patch; do
+-for patch in patches/*.patch; do
 -    PATCH_NUM=$((PATCH_NUM + 1))
 -    SUBJECT=$(grep '^Subject:' "$patch" | sed 's/Subject: \[PATCH[^]]*\] //')
 -    printf "  ${DIM}Applying %d/%d: %s${RST}\n" "$PATCH_NUM" "$PATCH_COUNT" "$SUBJECT"
@@ -137,7 +225,7 @@ index de571b54..9350f10d 100755
 +info "Rebasing $LOCAL_COMMITS local patch commit(s) onto upstream/main..."
  echo ""
  
--if ! git am --3way "$PATCH_TMPDIR"/*.patch; then
+-if ! git am patches/*.patch; then
 +if ! git rebase upstream/main; then
      echo ""
      die "$(cat <<'EOF'

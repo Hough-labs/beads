@@ -1,7 +1,7 @@
-From 4f1b62d46c12149e2c46ab9bf4b1480467679ce8 Mon Sep 17 00:00:00 2001
+From 662dcdd19173a91b9742b5928865a3dc0b2eea6b Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Wed, 8 Apr 2026 10:31:55 -0400
-Subject: [PATCH 12/21] fix(rename-prefix): three correctness bugs in repair +
+Subject: [PATCH 07/17] fix(rename-prefix): three correctness bugs in repair +
  simple rename
 
 Three independent bugs in `bd rename-prefix` could corrupt a database
@@ -45,10 +45,10 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
  4 files changed, 270 insertions(+), 8 deletions(-)
 
 diff --git a/cmd/bd/rename_prefix.go b/cmd/bd/rename_prefix.go
-index 4b472ea3..64aa281f 100644
+index f6e18318e..1222fa991 100644
 --- a/cmd/bd/rename_prefix.go
 +++ b/cmd/bd/rename_prefix.go
-@@ -261,11 +261,23 @@ func repairPrefixes(ctx context.Context, st storage.DoltStorage, actorName strin
+@@ -250,11 +250,23 @@ func repairPrefixes(ctx context.Context, st storage.DoltStorage, actorName strin
  		usedIDs[issue.ID] = true
  	}
  
@@ -76,7 +76,7 @@ index 4b472ea3..64aa281f 100644
  		}
  		renameMap[is.issue.ID] = newID
  		usedIDs[newID] = true
-@@ -390,6 +402,13 @@ func renamePrefixInDB(ctx context.Context, oldPrefix, newPrefix string, issues [
+@@ -379,6 +391,13 @@ func renamePrefixInDB(ctx context.Context, oldPrefix, newPrefix string, issues [
  
  	for _, issue := range issues {
  		oldID := issue.ID
@@ -91,7 +91,7 @@ index 4b472ea3..64aa281f 100644
  		newID := fmt.Sprintf("%s-%s", newPrefix, numPart)
  
 diff --git a/cmd/bd/rename_prefix_repair_test.go b/cmd/bd/rename_prefix_repair_test.go
-index 7b73e4ea..9fd12bf9 100644
+index 7b73e4ea2..9fd12bf95 100644
 --- a/cmd/bd/rename_prefix_repair_test.go
 +++ b/cmd/bd/rename_prefix_repair_test.go
 @@ -126,3 +126,170 @@ func TestRepairMultiplePrefixes(t *testing.T) {
@@ -266,7 +266,7 @@ index 7b73e4ea..9fd12bf9 100644
 +	}
 +}
 diff --git a/cmd/bd/rename_prefix_test.go b/cmd/bd/rename_prefix_test.go
-index cbc5974b..dabfcf66 100644
+index cbc5974b5..dabfcf66d 100644
 --- a/cmd/bd/rename_prefix_test.go
 +++ b/cmd/bd/rename_prefix_test.go
 @@ -221,3 +221,76 @@ func TestRenamePrefixInDB(t *testing.T) {
@@ -347,10 +347,10 @@ index cbc5974b..dabfcf66 100644
 +	}
 +}
 diff --git a/internal/storage/issueops/bulk_ops.go b/internal/storage/issueops/bulk_ops.go
-index aa15df1f..33f2aebf 100644
+index 844a6a42b..5eab506f8 100644
 --- a/internal/storage/issueops/bulk_ops.go
 +++ b/internal/storage/issueops/bulk_ops.go
-@@ -315,10 +315,13 @@ func updateWispIDInTx(ctx context.Context, tx *sql.Tx, oldID, newID string, issu
+@@ -312,10 +312,13 @@ func updateWispIDInTx(ctx context.Context, tx *sql.Tx, oldID, newID string, issu
  
  // RenameDependencyPrefixInTx updates the prefix in all dependency records.
  func RenameDependencyPrefixInTx(ctx context.Context, tx *sql.Tx, oldPrefix, newPrefix string) error {
@@ -366,7 +366,7 @@ index aa15df1f..33f2aebf 100644
  	`, newPrefix, oldPrefix, oldPrefix)
  	if err != nil {
  		return fmt.Errorf("update issue_id prefix in dependencies: %w", err)
-@@ -326,8 +329,8 @@ func RenameDependencyPrefixInTx(ctx context.Context, tx *sql.Tx, oldPrefix, newP
+@@ -323,8 +326,8 @@ func RenameDependencyPrefixInTx(ctx context.Context, tx *sql.Tx, oldPrefix, newP
  
  	_, err = tx.ExecContext(ctx, `
  		UPDATE dependencies

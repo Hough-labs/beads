@@ -1,20 +1,20 @@
-From c6e55f6ccd3ef01d6a4cc30062acf6a3fcaf06d7 Mon Sep 17 00:00:00 2001
+From 1fe9581f5c14b48ff9d328023b22ef0d613c4986 Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
-Date: Fri, 10 Apr 2026 12:19:08 -0400
-Subject: [PATCH 13/21] build: install to GOBIN, auto-install on push
+Date: Sun, 31 May 2026 14:59:09 -0400
+Subject: [PATCH 08/17] build: install bd to native ~/go/bin, auto-install on
+ push
 
-INSTALL_DIR now uses go env GOBIN with ~/go/bin fallback.
-Pre-push hook runs make install-force after patches.
-Cleans stale copies from ~/.local/bin.
+Squashed install-path evolution: install to GOBIN on push, then switch
+to native ~/go/bin instead of mise GOBIN.
 
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 ---
  .githooks/pre-push |  4 ++++
- Makefile           | 14 ++++++++++++--
- 2 files changed, 16 insertions(+), 2 deletions(-)
+ Makefile           | 17 +++++++++++++++--
+ 2 files changed, 19 insertions(+), 2 deletions(-)
 
 diff --git a/.githooks/pre-push b/.githooks/pre-push
-index aaae6088..1806f90e 100755
+index aaae6088a..c45d8f1e6 100755
 --- a/.githooks/pre-push
 +++ b/.githooks/pre-push
 @@ -15,3 +15,7 @@ if ! git diff --quiet patches/; then
@@ -22,36 +22,39 @@ index aaae6088..1806f90e 100755
      echo "pre-push: patches/ refreshed and folded into HEAD"
  fi
 +
-+# --- Build and install to mise GOBIN ---
-+echo "beads: rebuilding and installing to mise..."
++# --- Build and install to ~/go/bin ---
++echo "beads: rebuilding and installing to ~/go/bin..."
 +make install-force
 diff --git a/Makefile b/Makefile
-index e22806e2..426f8c44 100644
+index cf1769c80..3856e7de0 100644
 --- a/Makefile
 +++ b/Makefile
-@@ -19,7 +19,10 @@ GIT_BUILD := $(shell git rev-parse --short HEAD)
+@@ -19,7 +19,7 @@ GIT_BUILD := $(shell git rev-parse --short HEAD)
  ifeq ($(OS),Windows_NT)
  INSTALL_DIR := $(USERPROFILE)/.local/bin
  else
 -INSTALL_DIR := $(HOME)/.local/bin
-+INSTALL_DIR := $(shell go env GOBIN)
-+ifeq ($(INSTALL_DIR),)
 +INSTALL_DIR := $(HOME)/go/bin
-+endif
  endif
  
  # Dolt backend requires CGO for embedded database support.
-@@ -159,8 +162,15 @@ else
+@@ -159,8 +159,21 @@ else
  	@cp $(BUILD_DIR)/bd $(INSTALL_DIR)/bd
  	@echo "Installed bd to $(INSTALL_DIR)/bd"
  	@rm -f $(INSTALL_DIR)/beads
 -	@ln -s bd $(INSTALL_DIR)/beads
 +	@ln -sf bd $(INSTALL_DIR)/beads
  	@echo "Created 'beads' alias -> bd"
-+	@# Clean stale copies from previous install location
++	@# Clean stale copies from previous install locations (including mise Go paths)
 +	@for stale in $(HOME)/.local/bin/bd $(HOME)/.local/bin/beads; do \
 +		if [ -f "$$stale" ] && [ "$$stale" != "$(INSTALL_DIR)/bd" ] && [ "$$stale" != "$(INSTALL_DIR)/beads" ]; then \
 +			echo "Removing stale $$stale"; \
++			rm -f "$$stale"; \
++		fi; \
++	done
++	@for stale in $(HOME)/.local/share/mise/installs/go/*/bin/bd; do \
++		if [ -f "$$stale" ] || [ -L "$$stale" ]; then \
++			echo "Removing stale mise binary $$stale"; \
 +			rm -f "$$stale"; \
 +		fi; \
 +	done

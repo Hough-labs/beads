@@ -1,7 +1,7 @@
-From 43aff05728fb6efb14bd1fff89820dac55075d10 Mon Sep 17 00:00:00 2001
+From e45e4e7033f0c1fa9725d58627b1d8d57174c75d Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Fri, 3 Apr 2026 19:19:07 -0400
-Subject: [PATCH 03/21] feat(cmd): add bd trace command for requirement status
+Subject: [PATCH 03/17] feat(cmd): add bd trace command for requirement status
  overview
 
 Groups beads by spec_id, reports count and status breakdown per
@@ -16,7 +16,7 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 
 diff --git a/cmd/bd/trace.go b/cmd/bd/trace.go
 new file mode 100644
-index 00000000..4ddc2eeb
+index 000000000..4ddc2eebd
 --- /dev/null
 +++ b/cmd/bd/trace.go
 @@ -0,0 +1,151 @@

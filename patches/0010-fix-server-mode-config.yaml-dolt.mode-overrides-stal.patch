@@ -1,7 +1,7 @@
-From d73c75df0c8a090a90a927708c825013e00b1897 Mon Sep 17 00:00:00 2001
+From 228fe850362428a41cfbee3a180fcfcc52359dcf Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Mon, 13 Apr 2026 16:04:38 -0400
-Subject: [PATCH 16/21] fix(server-mode): config.yaml dolt.mode overrides stale
+Subject: [PATCH 10/17] fix(server-mode): config.yaml dolt.mode overrides stale
  metadata.json
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -37,10 +37,10 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
  4 files changed, 15 insertions(+), 3 deletions(-)
 
 diff --git a/cmd/bd/init.go b/cmd/bd/init.go
-index 8ca918c0..64a2cec1 100644
+index 863ec04eb..e9a76e8f1 100644
 --- a/cmd/bd/init.go
 +++ b/cmd/bd/init.go
-@@ -778,7 +778,9 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
+@@ -941,7 +941,9 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
  				}
  
  				// Persist the connection mode matching this build.
@@ -52,10 +52,10 @@ index 8ca918c0..64a2cec1 100644
  				} else {
  					cfg.DoltMode = configfile.DoltModeServer
 diff --git a/cmd/bd/main.go b/cmd/bd/main.go
-index 97e33b3b..7a5c22b1 100644
+index 291524caa..3a9e77f3e 100644
 --- a/cmd/bd/main.go
 +++ b/cmd/bd/main.go
-@@ -230,6 +230,12 @@ func loadServerModeFromBeadsDir(beadsDir string) {
+@@ -240,6 +240,12 @@ func loadServerModeFromBeadsDir(beadsDir string) {
  	if !sm && doltserver.IsSharedServerMode() {
  		sm = true
  	}
@@ -68,7 +68,7 @@ index 97e33b3b..7a5c22b1 100644
  	serverMode = sm
  	if cmdCtx != nil {
  		cmdCtx.ServerMode = sm
-@@ -829,6 +835,10 @@ var rootCmd = &cobra.Command{
+@@ -924,6 +930,10 @@ var rootCmd = &cobra.Command{
  			if !doltCfg.ServerMode && doltserver.IsSharedServerMode() {
  				doltCfg.ServerMode = true
  			}
@@ -80,7 +80,7 @@ index 97e33b3b..7a5c22b1 100644
  			if cmdCtx != nil {
  				cmdCtx.ServerMode = doltCfg.ServerMode
 diff --git a/internal/storage/dolt/transaction.go b/internal/storage/dolt/transaction.go
-index 8cc18439..39a69e52 100644
+index d42832d82..c81a8e41a 100644
 --- a/internal/storage/dolt/transaction.go
 +++ b/internal/storage/dolt/transaction.go
 @@ -144,7 +144,7 @@ func (t *doltTransaction) CreateIssue(ctx context.Context, issue *types.Issue, a
@@ -93,7 +93,7 @@ index 8cc18439..39a69e52 100644
  			return fmt.Errorf("%w: issue_prefix config is missing", storage.ErrNotInitialized)
  		} else if err != nil {
 diff --git a/internal/storage/issueops/helpers.go b/internal/storage/issueops/helpers.go
-index 599becde..2bc67aa3 100644
+index c1e5f4357..dca88d64d 100644
 --- a/internal/storage/issueops/helpers.go
 +++ b/internal/storage/issueops/helpers.go
 @@ -499,7 +499,7 @@ func IsDoltNothingToCommit(err error) bool {
@@ -103,7 +103,7 @@ index 599becde..2bc67aa3 100644
 -	err := tx.QueryRowContext(ctx, "SELECT value FROM config WHERE `key` = ?", "issue_prefix").Scan(&configPrefix)
 +	err := tx.QueryRowContext(ctx, "SELECT value FROM config WHERE `key` IN ('issue_prefix', 'issue-prefix') LIMIT 1").Scan(&configPrefix)
  	if err == sql.ErrNoRows || configPrefix == "" {
- 		return "", fmt.Errorf("%w: issue_prefix config is missing (run 'bd init --prefix <prefix>' first)", storage.ErrNotInitialized)
+ 		return "", fmt.Errorf("%w: issue_prefix config is missing (run 'bd init --prefix <prefix>' for a new project, or 'bd bootstrap' to clone an existing remote)", storage.ErrNotInitialized)
  	} else if err != nil {
 -- 
 2.50.1 (Apple Git-155)

@@ -1,0 +1,236 @@
+From b1dafeea92d0672caae7e7088fa55d2b08c8605a Mon Sep 17 00:00:00 2001
+From: Hunter B Hough <hunter.hough@gmail.com>
+Date: Sun, 17 May 2026 14:55:18 -0400
+Subject: [PATCH 14/17] chore(scripts): add update-beads-hooks.sh + make target
+
+Walks ~/.* and ~/code/* for every .beads/ directory and runs
+`bd hooks install --beads --force` in its enclosing repo. Skips worktrees
+(they share core.hooksPath with the main repo) and dirs outside a git
+repo. Useful after a bd binary upgrade to refresh per-repo shim version
+strings and re-assert hook presence across the machine.
+
+  make update-hooks            - do it (53 repos updated on hammer)
+  make update-hooks-dry-run    - show what would be done
+
+Note: the fix that motivated this (beads-p4v) lives in the bd binary;
+shims dispatch to `bd hooks run`, so the binary upgrade is what carries
+new behavior. This target re-asserts shim presence, nothing more.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+---
+ Makefile                      |  17 +++-
+ scripts/update-beads-hooks.sh | 162 ++++++++++++++++++++++++++++++++++
+ 2 files changed, 178 insertions(+), 1 deletion(-)
+ create mode 100755 scripts/update-beads-hooks.sh
+
+diff --git a/Makefile b/Makefile
+index 5b5fa0cb5..3c0eff7ed 100644
+--- a/Makefile
++++ b/Makefile
+@@ -9,7 +9,7 @@ SHELL := $(subst cmd,bin,$(subst git.exe,bash.exe,$(GIT_BASH)))
+ endif
+ endif
+ 
+-.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean install install-force help check-up-to-date fmt fmt-check patches upgrade
++.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean install install-force help check-up-to-date fmt fmt-check patches upgrade update-hooks update-hooks-dry-run
+ 
+ # Default target
+ all: build
+@@ -225,6 +225,19 @@ patches:
+ upgrade:
+ 	@bash scripts/upgrade-anvil.sh
+ 
++# Refresh bd hooks in every repo with a .beads/ dir under ~/.* and ~/code/*.
++# Useful after a bd binary upgrade so per-repo shims stay consistent. The fix
++# itself lives in the bd binary (shims dispatch to `bd hooks run`), so the
++# binary upgrade is what carries new behavior; this target re-asserts hook
++# presence and refreshes shim version strings across the machine.
++#   make update-hooks            - Do it
++#   make update-hooks-dry-run    - Show what would be done, change nothing
++update-hooks:
++	@bash scripts/update-beads-hooks.sh
++
++update-hooks-dry-run:
++	@bash scripts/update-beads-hooks.sh --dry-run
++
+ # Show help
+ help:
+ 	@echo "Beads Makefile targets:"
+@@ -246,4 +259,6 @@ help:
+ 	@echo "  make clean        - Remove build artifacts and profile files"
+ 	@echo "  make patches      - Export local commits to patches/ directory"
+ 	@echo "  make upgrade      - Fetch upstream, reset, replay patches/"
++	@echo "  make update-hooks - Refresh bd hooks in every repo with a .beads/ dir under ~/.* and ~/code/*"
++	@echo "  make update-hooks-dry-run - Show what update-hooks would do, change nothing"
+ 	@echo "  make help         - Show this help message"
+diff --git a/scripts/update-beads-hooks.sh b/scripts/update-beads-hooks.sh
+new file mode 100755
+index 000000000..48d85f1cc
+--- /dev/null
++++ b/scripts/update-beads-hooks.sh
+@@ -0,0 +1,162 @@
++#!/usr/bin/env bash
++# update-beads-hooks.sh — refresh bd hooks in every repo with a .beads/ dir.
++#
++# Walks ~/.* and ~/code/* recursively, finds every .beads/ directory, and runs
++# `bd hooks install --beads --force` in its enclosing git repo. Useful after
++# upgrading the bd binary so per-repo shims pick up new bd-shim format and any
++# repo with missing/stale hooks gets brought back into shape.
++#
++# The fix itself ships in the bd binary (the .beads/hooks/* shims just call
++# `bd hooks run …`), so simply running this is not what makes a fix take
++# effect — the binary upgrade does. This script exists to surface stale shims
++# and re-assert hook presence across the machine.
++#
++# Skips:
++#   - directories that aren't inside a git repo
++#   - worktrees (they share core.hooksPath with the main repo, so updating
++#     the main repo covers them)
++#
++# Usage:
++#   scripts/update-beads-hooks.sh            # do it
++#   scripts/update-beads-hooks.sh --dry-run  # show what would be done
++#   scripts/update-beads-hooks.sh --help
++
++set -euo pipefail
++
++DRY_RUN=false
++case "${1:-}" in
++    -n|--dry-run) DRY_RUN=true ;;
++    -h|--help)
++        sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
++        exit 0
++        ;;
++    "") ;;
++    *)
++        printf 'unknown flag: %s\n' "$1" >&2
++        exit 2
++        ;;
++esac
++
++if [[ -t 1 ]]; then
++    RED=$'\e[31m' GREEN=$'\e[32m' YELLOW=$'\e[33m' DIM=$'\e[2m' BOLD=$'\e[1m' NC=$'\e[0m'
++else
++    RED='' GREEN='' YELLOW='' DIM='' BOLD='' NC=''
++fi
++
++if ! command -v bd >/dev/null 2>&1; then
++    printf '%serror:%s bd not on PATH\n' "$RED" "$NC" >&2
++    exit 1
++fi
++
++bd_version=$(bd --version 2>/dev/null | head -1 || true)
++printf '%sUsing %s%s\n\n' "$BOLD" "${bd_version:-unknown bd}" "$NC"
++
++shopt -s nullglob
++roots=()
++for d in "$HOME"/.[!.]*/ "$HOME"/code/*/; do
++    [[ -d "$d" ]] && roots+=("${d%/}")
++done
++
++if [[ ${#roots[@]} -eq 0 ]]; then
++    printf '%sno candidate roots under ~/.* or ~/code/*%s\n' "$YELLOW" "$NC" >&2
++    exit 0
++fi
++
++# Find every .beads/ directory under the roots, pruning trees we never want
++# to descend into. The prune list is biased toward large, dependency-managed
++# trees (node_modules, vendor, target, .cache, etc.).
++candidates=()
++while IFS= read -r -d '' beads; do
++    candidates+=("$beads")
++done < <(
++    find "${roots[@]}" \
++        \( -name .git -o -name node_modules -o -name vendor -o -name target \
++           -o -name dist -o -name build -o -name out \
++           -o -name Library -o -name Caches -o -name .cache \
++           -o -name .npm -o -name .gem -o -name .cargo -o -name .rustup \
++           -o -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache \
++           -o -name .tox -o -name .terraform -o -name .gradle \
++           -o -name .next -o -name .nuxt \) \
++        -prune -o \
++        -type d -name .beads -print0 \
++        2>/dev/null
++)
++
++printf 'Found %s%d%s .beads candidate(s) under ~/.* and ~/code/*\n\n' \
++    "$BOLD" "${#candidates[@]}" "$NC"
++
++# Track repos we've already updated so a repo with multiple .beads dirs (rare)
++# doesn't get updated twice.
++declare -a seen_repos=()
++already_seen() {
++    local needle=$1
++    local item
++    for item in "${seen_repos[@]}"; do
++        [[ "$item" == "$needle" ]] && return 0
++    done
++    return 1
++}
++
++ok=0
++skipped=0
++failed=0
++fails=()
++
++for beads in "${candidates[@]}"; do
++    repo=$(cd "$(dirname "$beads")" 2>/dev/null && pwd) || continue
++    label=${repo/#$HOME/~}
++
++    if already_seen "$repo"; then
++        continue
++    fi
++    seen_repos+=("$repo")
++
++    if ! git_dir=$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null); then
++        printf '  %sskip%s %-60s %s(not a git repo)%s\n' \
++            "$DIM" "$NC" "$label" "$DIM" "$NC"
++        skipped=$((skipped + 1))
++        continue
++    fi
++
++    common=$(git -C "$repo" rev-parse --git-common-dir 2>/dev/null || true)
++    common_abs=""
++    if [[ -n "$common" ]]; then
++        if [[ "$common" = /* ]]; then
++            common_abs=$(cd "$common" 2>/dev/null && pwd || true)
++        else
++            common_abs=$(cd "$repo" && cd "$common" 2>/dev/null && pwd || true)
++        fi
++    fi
++    if [[ -n "$common_abs" && "$git_dir" != "$common_abs" ]]; then
++        printf '  %sskip%s %-60s %s(worktree)%s\n' \
++            "$DIM" "$NC" "$label" "$DIM" "$NC"
++        skipped=$((skipped + 1))
++        continue
++    fi
++
++    if $DRY_RUN; then
++        printf '  %swould update%s %s\n' "$YELLOW" "$NC" "$label"
++        ok=$((ok + 1))
++        continue
++    fi
++
++    if output=$(cd "$repo" && bd hooks install --beads --force 2>&1 </dev/null); then
++        printf '  %sok%s   %s\n' "$GREEN" "$NC" "$label"
++        ok=$((ok + 1))
++    else
++        printf '  %sfail%s %s\n' "$RED" "$NC" "$label"
++        fails+=("$label"$'\n'"$output")
++        failed=$((failed + 1))
++    fi
++done
++
++printf '\n%sSummary:%s ok=%d skipped=%d failed=%d\n' \
++    "$BOLD" "$NC" "$ok" "$skipped" "$failed"
++
++if [[ "$failed" -gt 0 ]]; then
++    printf '\n%sFailures:%s\n' "$RED" "$NC"
++    for f in "${fails[@]}"; do
++        printf -- '----\n%s\n' "$f"
++    done
++    exit 1
++fi
+-- 
+2.50.1 (Apple Git-155)
+

@@ -1,7 +1,7 @@
-From fa2573a6a67afc3f6cf6330222a37afdcbf1f6c4 Mon Sep 17 00:00:00 2001
+From 897ae366365ba82929b259006a6b6a73ed54df2e Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Sat, 4 Apr 2026 05:58:24 -0400
-Subject: [PATCH 04/21] feat(init): auto-detect server mode on Linux via env
+Subject: [PATCH 04/17] feat(init): auto-detect server mode on Linux via env
  var or k8s probe
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -30,10 +30,10 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
  create mode 100644 cmd/bd/server_autodetect_test.go
 
 diff --git a/cmd/bd/init.go b/cmd/bd/init.go
-index 057a3613..8ca918c0 100644
+index f86cee7f0..863ec04eb 100644
 --- a/cmd/bd/init.go
 +++ b/cmd/bd/init.go
-@@ -149,6 +149,24 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
+@@ -163,6 +163,24 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
  			initServerMode = true
  		}
  
@@ -60,7 +60,7 @@ index 057a3613..8ca918c0 100644
  		// creates a fresh cmdCtx (with ServerMode=false) before Run executes.
 diff --git a/cmd/bd/server_autodetect.go b/cmd/bd/server_autodetect.go
 new file mode 100644
-index 00000000..09bc6cc4
+index 000000000..09bc6cc45
 --- /dev/null
 +++ b/cmd/bd/server_autodetect.go
 @@ -0,0 +1,64 @@
@@ -130,7 +130,7 @@ index 00000000..09bc6cc4
 +)
 diff --git a/cmd/bd/server_autodetect_test.go b/cmd/bd/server_autodetect_test.go
 new file mode 100644
-index 00000000..5fe05153
+index 000000000..5fe05153a
 --- /dev/null
 +++ b/cmd/bd/server_autodetect_test.go
 @@ -0,0 +1,132 @@

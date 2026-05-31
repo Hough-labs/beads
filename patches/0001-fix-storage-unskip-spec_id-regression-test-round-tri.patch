@@ -1,7 +1,7 @@
-From 3cefd9ed1fbcad427f65aa207e3e15062c4d2079 Mon Sep 17 00:00:00 2001
+From 403396e5d421385ac37c476983bc9bc0c8303715 Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Fri, 3 Apr 2026 19:18:56 -0400
-Subject: [PATCH 01/21] =?UTF-8?q?fix(storage):=20unskip=20spec=5Fid=20regr?=
+Subject: [PATCH 01/17] =?UTF-8?q?fix(storage):=20unskip=20spec=5Fid=20regr?=
  =?UTF-8?q?ession=20test=20=E2=80=94=20round-trip=20verified=20working?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -16,7 +16,7 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
  1 file changed, 1 deletion(-)
 
 diff --git a/tests/regression/scenarios_test.go b/tests/regression/scenarios_test.go
-index de786a84..5d450913 100644
+index 79af772db..b0755f53a 100644
 --- a/tests/regression/scenarios_test.go
 +++ b/tests/regression/scenarios_test.go
 @@ -124,7 +124,6 @@ func TestUpdateFieldPreservation(t *testing.T) {

@@ -1,0 +1,26 @@
+From 5d1728a08c11ff0a4bd4f237863b5647ad8bdee8 Mon Sep 17 00:00:00 2001
+From: Hunter B Hough <git@hough.ink>
+Date: Mon, 18 May 2026 16:22:50 -0400
+Subject: [PATCH 16/17] chore(claude): enable gopls-lsp plugin
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+---
+ .claude/settings.json | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/.claude/settings.json b/.claude/settings.json
+index 159340534..204f10daa 100644
+--- a/.claude/settings.json
++++ b/.claude/settings.json
+@@ -15,5 +15,8 @@
+         ]
+       }
+     ]
++  },
++  "enabledPlugins": {
++    "gopls-lsp@claude-plugins-official": true
+   }
+ }
+-- 
+2.50.1 (Apple Git-155)
+

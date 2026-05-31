@@ -1,0 +1,280 @@
+From 08b1d3c1daa6498d48c9e73836e5afe3458a2644 Mon Sep 17 00:00:00 2001
+From: Hunter B Hough <git@hough.ink>
+Date: Sun, 31 May 2026 14:59:09 -0400
+Subject: [PATCH 13/17] docs: drop stale bd merge references and website file
+ removed upstream
+
+Squashed: drop stale bd merge references (Phase 3 removal) across docs,
+and remove website/docs/cli-reference/issues.md (deleted upstream in v1.0.4).
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ docs/ADVANCED.md                              | 58 +------------------
+ docs/CLI_REFERENCE.md                         | 21 +++++++
+ docs/GIT_INTEGRATION.md                       | 58 ++++++-------------
+ docs/TROUBLESHOOTING.md                       |  3 +-
+ .../skills/beads/resources/CLI_REFERENCE.md   |  5 +-
+ website/docs/reference/advanced.md            | 14 -----
+ 6 files changed, 44 insertions(+), 115 deletions(-)
+
+diff --git a/docs/ADVANCED.md b/docs/ADVANCED.md
+index e051568f6..0bfbf952f 100644
+--- a/docs/ADVANCED.md
++++ b/docs/ADVANCED.md
+@@ -5,7 +5,6 @@ This guide covers advanced features for power users and specific use cases.
+ ## Table of Contents
+ 
+ - [Renaming Prefix](#renaming-prefix)
+-- [Merging Duplicate Issues](#merging-duplicate-issues)
+ - [Git Worktrees](#git-worktrees)
+ - [Database Redirects](#database-redirects)
+ - [Handling Import Collisions](#handling-import-collisions)
+@@ -91,7 +90,7 @@ bd init --from-jsonl  # then: bd duplicates
+ ━━ Group 1: Fix authentication bug
+ → bd-10 (open, P1, 5 references)
+   bd-42 (open, P1, 0 references)
+-  Suggested: bd merge bd-42 --into bd-10
++  Suggested: bd duplicate bd-42 --of bd-10
+ 
+ 💡 Run with --auto-merge to execute all suggested merges
+ ```
+@@ -103,61 +102,6 @@ bd init --from-jsonl  # then: bd duplicates
+ 3. **Auto-merge**: Use `--auto-merge` to automatically consolidate duplicates
+ 4. **Manual review**: Use `--dry-run` to preview merges before executing
+ 
+-## Merging Duplicate Issues
+-
+-Consolidate duplicate issues into a single issue while preserving dependencies and references:
+-
+-```bash
+-# Merge bd-42 and bd-43 into bd-41
+-bd merge bd-42 bd-43 --into bd-41
+-
+-# Merge multiple duplicates at once
+-bd merge bd-10 bd-11 bd-12 --into bd-10
+-
+-# Preview merge without making changes
+-bd merge bd-42 bd-43 --into bd-41 --dry-run
+-
+-# JSON output
+-bd merge bd-42 bd-43 --into bd-41 --json
+-```
+-
+-**What the merge command does:**
+-1. **Validates** all issues exist and prevents self-merge
+-2. **Closes** source issues with reason `Merged into bd-X`
+-3. **Migrates** all dependencies from source issues to target
+-4. **Updates** text references across all issue descriptions, notes, design, and acceptance criteria
+-
+-**Example workflow:**
+-
+-```bash
+-# You discover bd-42 and bd-43 are duplicates of bd-41
+-bd show bd-41 bd-42 bd-43
+-
+-# Preview the merge
+-bd merge bd-42 bd-43 --into bd-41 --dry-run
+-
+-# Execute the merge
+-bd merge bd-42 bd-43 --into bd-41
+-# ✓ Merged 2 issue(s) into bd-41
+-
+-# Verify the result
+-bd show bd-41  # Now has dependencies from bd-42 and bd-43
+-bd dep tree bd-41  # Shows unified dependency tree
+-```
+-
+-**Important notes:**
+-- Source issues are permanently closed (status: `closed`)
+-- All dependencies pointing to source issues are redirected to target
+-- Text references like "see bd-42" are automatically rewritten to "see bd-41"
+-- Operation cannot be undone (but git history preserves the original state)
+-**AI Agent Workflow:**
+-
+-When agents discover duplicate issues, they should:
+-1. Search for similar issues: `bd list --json | grep "similar text"`
+-2. Compare issue details: `bd show bd-41 bd-42 --json`
+-3. Merge duplicates: `bd merge bd-42 --into bd-41`
+-4. File a discovered-from issue if needed: `bd create "Found duplicates during bd-X" --deps discovered-from:bd-X`
+-
+ ## Git Worktrees
+ 
+ Git worktrees work with bd. Each worktree can have its own `.beads` directory, or worktrees can share a database via redirects (see [Database Redirects](#database-redirects)).
+diff --git a/docs/CLI_REFERENCE.md b/docs/CLI_REFERENCE.md
+index 74da30a49..5e9d6a21d 100644
+--- a/docs/CLI_REFERENCE.md
++++ b/docs/CLI_REFERENCE.md
+@@ -353,6 +353,7 @@ bd close [id...] [flags]
+ 
+ **Flags:**
+ 
++<<<<<<< HEAD
+ ```
+       --claim-next           Automatically claim the next highest priority available issue
+       --continue             Auto-advance to next step in molecule
+@@ -362,6 +363,26 @@ bd close [id...] [flags]
+       --reason-file string   Read close reason from file (use - for stdin)
+       --session string       Claude Code session ID (or set CLAUDE_SESSION_ID env var)
+       --suggest-next         Show newly unblocked issues after closing
++||||||| parent of c3c17e84c (docs: drop stale bd merge references after Phase 3 removal)
++```bash
++# Find and merge duplicate issues
++bd duplicates                                          # Show all duplicates
++bd duplicates --auto-merge                             # Automatically merge all
++bd duplicates --dry-run                                # Preview merge operations
++
++# Merge specific duplicate issues
++bd merge <source-id...> --into <target-id> --json      # Consolidate duplicates
++bd merge bd-42 bd-43 --into bd-41 --dry-run            # Preview merge
++=======
++```bash
++# Find and merge duplicate issues
++bd duplicates                                          # Show all duplicates
++bd duplicates --auto-merge                             # Automatically merge all
++bd duplicates --dry-run                                # Preview merge operations
++
++# Mark a single issue as a duplicate of a canonical one
++bd duplicate bd-42 --of bd-41                          # Closes bd-42, links to bd-41
++>>>>>>> c3c17e84c (docs: drop stale bd merge references after Phase 3 removal)
+ ```
+ 
+ ### bd comment
+diff --git a/docs/GIT_INTEGRATION.md b/docs/GIT_INTEGRATION.md
+index 7523be957..6d0bdbfd0 100644
+--- a/docs/GIT_INTEGRATION.md
++++ b/docs/GIT_INTEGRATION.md
+@@ -120,17 +120,10 @@ push = ["util", "exec", "--", "sh", "-c", "bd dolt commit && bd dolt push && jj
+ 
+ ### Merge Conflicts
+ 
+-Configure jj to use beads' merge driver for `.beads/issues.jsonl`:
+-
+-```toml
+-# ~/.config/jj/config.toml
+-[merge-tools.beads-merge]
+-program = "bd"
+-merge-args = ["merge", "$output", "$base", "$left", "$right"]
+-merge-conflict-exit-codes = [1]
+-```
+-
+-Then resolve with: `jj resolve --tool=beads-merge .beads/issues.jsonl`
++Beads data lives in Dolt (`refs/dolt/data`), not in any git-tracked file, so jj's
++file-level merge tooling does not need a custom driver for `.beads/`. Resolve
++data conflicts with `bd dolt pull` (cell-level merge) and `bd vc merge` /
++`bd vc status` for branch-level operations.
+ 
+ ## Git Hooks
+ 
+@@ -309,40 +302,25 @@ See [MULTI_REPO_MIGRATION.md](MULTI_REPO_MIGRATION.md) for complete guide.
+ 
+ The Dolt database directory (`.beads/dolt/`) should be gitignored, not tracked via LFS or regular git.
+ 
+-## Custom Merge Driver
+-
+-bd includes a built-in merge driver for resolving conflicts in `.beads/issues.jsonl` files. This replaces the standalone `beads-merge` binary that was previously maintained in a separate repository.
+-
+-### Alternative: Standalone beads-merge Binary (Deprecated)
+-
+-> **⚠️ Deprecated:** The standalone `beads-merge` binary (previously hosted at `github.com/neongreen/mono`) is no longer maintained and may be incompatible with current versions of bd. Use `bd merge` instead.
+-
+-The built-in `bd merge` command provides the same functionality:
+-
+-```bash
+-bd merge <output> <base> <left> <right>
+-```
+-
+-### Jujutsu Integration
+-
+-> See also: [Branchless Workflows](#branchless-workflows-jujutsu--jj) for a complete guide.
+-
+-**For [Jujutsu](https://martinvonz.github.io/jj/) users**, add to `~/.config/jj/config.toml`:
+-
+-```toml
+-[merge-tools.beads-merge]
+-program = "bd"
+-merge-args = ["merge", "$output", "$base", "$left", "$right"]
+-merge-conflict-exit-codes = [1]
+-```
++## Conflict Handling
+ 
+-Then resolve conflicts with:
++Beads stores its data in Dolt under `refs/dolt/data`, separate from git refs.
++Conflicts are resolved at the Dolt layer with cell-level merge, not via a
++file-level git/jj merge driver:
+ 
+ ```bash
+-jj resolve --tool=beads-merge .beads/issues.jsonl
++bd dolt pull                  # cell-level auto-merge during sync
++bd vc status                  # show current branch + uncommitted changes
++bd vc merge <branch>          # merge another Dolt branch into current
++bd vc merge <branch> --strategy ours|theirs   # auto-resolve a conflicted merge
+ ```
+ 
+-This configures Jujutsu to invoke `bd merge` as its merge tool, restricted to `.beads/issues.jsonl` (since it only handles beads data conflicts, not general file conflicts).
++> **History note:** Earlier versions of bd vendored a JSONL-based 3-way merge
++> driver (`bd merge`, originally `beads-merge` from `github.com/neongreen/mono`)
++> for `.beads/issues.jsonl` conflicts. That driver was removed in early 2026
++> when bd moved to Dolt as the sole source of truth. If you have leftover
++> `merge.beads.driver` git config from an older install, run
++> `git config --unset merge.beads.driver` and `git config --unset merge.beads.name`.
+ 
+ ## See Also
+ 
+diff --git a/docs/TROUBLESHOOTING.md b/docs/TROUBLESHOOTING.md
+index ec89daf7f..bed014097 100644
+--- a/docs/TROUBLESHOOTING.md
++++ b/docs/TROUBLESHOOTING.md
+@@ -805,7 +805,8 @@ Agents may not realize an issue already exists. Prevention strategies:
+ - Have agents search first: `bd list --json | grep "title"`
+ - Use labels to mark auto-created issues: `bd create "..." -l auto-generated`
+ - Review and deduplicate periodically: `bd list | sort`
+-- Use `bd merge` to consolidate duplicates: `bd merge bd-2 --into bd-1`
++- Mark duplicates with `bd duplicate bd-2 --of bd-1` (closes bd-2, preserves a reference)
++- Or run `bd duplicates --auto-merge` to consolidate content-identical duplicates in bulk
+ 
+ ### Agent gets confused by complex dependencies
+ 
+diff --git a/plugins/beads/skills/beads/resources/CLI_REFERENCE.md b/plugins/beads/skills/beads/resources/CLI_REFERENCE.md
+index 566fd5197..edaf918ee 100644
+--- a/plugins/beads/skills/beads/resources/CLI_REFERENCE.md
++++ b/plugins/beads/skills/beads/resources/CLI_REFERENCE.md
+@@ -468,9 +468,8 @@ bd duplicates                                          # Show all duplicates
+ bd duplicates --auto-merge                             # Automatically merge all
+ bd duplicates --dry-run                                # Preview merge operations
+ 
+-# Merge specific duplicate issues
+-bd merge <source-id...> --into <target-id> --json      # Consolidate duplicates
+-bd merge bd-42 bd-43 --into bd-41 --dry-run            # Preview merge
++# Mark a single issue as a duplicate of a canonical one
++bd duplicate bd-42 --of bd-41                          # Closes bd-42, links to bd-41
+ ```
+ 
+ ### Compaction (Memory Decay)
+diff --git a/website/docs/reference/advanced.md b/website/docs/reference/advanced.md
+index c065eb3fd..40d8d9639 100644
+--- a/website/docs/reference/advanced.md
++++ b/website/docs/reference/advanced.md
+@@ -22,20 +22,6 @@ Updates:
+ - All references in other issues
+ - Comments and descriptions
+ 
+-## Issue Merge
+-
+-Merge duplicate issues:
+-
+-```bash
+-bd merge bd-42 bd-43 --into bd-41
+-bd merge bd-42 bd-43 --into bd-41 --dry-run
+-```
+-
+-What gets merged:
+-- Dependencies → target
+-- Text references updated across all issues
+-- Source issues closed with merge reason
+-
+ ## Database Compaction
+ 
+ Reduce database size by compacting old issues:
+-- 
+2.50.1 (Apple Git-155)
+

@@ -1,7 +1,7 @@
-From 6b8847385e1fe0c06ad21a48255997f6436f37f7 Mon Sep 17 00:00:00 2001
+From 157a20784b1c91bd5ae00be7bb4e4a7f6e27a622 Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Mon, 13 Apr 2026 16:18:57 -0400
-Subject: [PATCH 17/21] fix(plugin): stop telling agents to run bd init on
+Subject: [PATCH 11/17] fix(plugin): stop telling agents to run bd init on
  database errors
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -17,13 +17,13 @@ advice, and silently switch the entire project to embedded mode.
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 ---
- claude-plugin/skills/beads/SKILL.md | 2 +-
+ plugins/beads/skills/beads/SKILL.md | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
-diff --git a/claude-plugin/skills/beads/SKILL.md b/claude-plugin/skills/beads/SKILL.md
-index f41fe0b0..54b83295 100644
---- a/claude-plugin/skills/beads/SKILL.md
-+++ b/claude-plugin/skills/beads/SKILL.md
+diff --git a/plugins/beads/skills/beads/SKILL.md b/plugins/beads/skills/beads/SKILL.md
+index 9afec80e9..4adc8080f 100644
+--- a/plugins/beads/skills/beads/SKILL.md
++++ b/plugins/beads/skills/beads/SKILL.md
 @@ -63,7 +63,7 @@ Append `--json` to any command for structured output. Use `bd show <id> --long`
  
  | Error | Fix |

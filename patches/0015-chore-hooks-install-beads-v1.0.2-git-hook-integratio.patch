@@ -1,0 +1,179 @@
+From b9b9ff1d619ae0fd7ce043bca8996e63a871683d Mon Sep 17 00:00:00 2001
+From: Hunter B Hough <git@hough.ink>
+Date: Mon, 18 May 2026 16:22:42 -0400
+Subject: [PATCH 15/17] chore(hooks): install beads v1.0.2 git hook integration
+
+Adds the bd-managed hook block to pre-commit and pre-push (with BD_GIT_HOOK
+guard, 300s default timeout, exit-3 = uninitialized-db handling), and adds
+post-checkout, post-merge, and prepare-commit-msg hooks following the same
+pattern.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+---
+ .githooks/post-checkout      | 24 ++++++++++++++++++++++++
+ .githooks/post-merge         | 24 ++++++++++++++++++++++++
+ .githooks/pre-commit         | 24 ++++++++++++++++++++++++
+ .githooks/pre-push           | 24 ++++++++++++++++++++++++
+ .githooks/prepare-commit-msg | 24 ++++++++++++++++++++++++
+ 5 files changed, 120 insertions(+)
+ create mode 100755 .githooks/post-checkout
+ create mode 100755 .githooks/post-merge
+ create mode 100755 .githooks/prepare-commit-msg
+
+diff --git a/.githooks/post-checkout b/.githooks/post-checkout
+new file mode 100755
+index 000000000..8740e4f2e
+--- /dev/null
++++ b/.githooks/post-checkout
+@@ -0,0 +1,24 @@
++#!/usr/bin/env sh
++# --- BEGIN BEADS INTEGRATION v1.0.2 ---
++# This section is managed by beads. Do not remove these markers.
++if command -v bd >/dev/null 2>&1; then
++  export BD_GIT_HOOK=1
++  _bd_timeout=${BEADS_HOOK_TIMEOUT:-300}
++  if command -v timeout >/dev/null 2>&1; then
++    timeout "$_bd_timeout" bd hooks run post-checkout "$@"
++    _bd_exit=$?
++    if [ $_bd_exit -eq 124 ]; then
++      echo >&2 "beads: hook 'post-checkout' timed out after ${_bd_timeout}s — continuing without beads"
++      _bd_exit=0
++    fi
++  else
++    bd hooks run post-checkout "$@"
++    _bd_exit=$?
++  fi
++  if [ $_bd_exit -eq 3 ]; then
++    echo >&2 "beads: database not initialized — skipping hook 'post-checkout'"
++    _bd_exit=0
++  fi
++  if [ $_bd_exit -ne 0 ]; then exit $_bd_exit; fi
++fi
++# --- END BEADS INTEGRATION v1.0.2 ---
+diff --git a/.githooks/post-merge b/.githooks/post-merge
+new file mode 100755
+index 000000000..79487b2f9
+--- /dev/null
++++ b/.githooks/post-merge
+@@ -0,0 +1,24 @@
++#!/usr/bin/env sh
++# --- BEGIN BEADS INTEGRATION v1.0.2 ---
++# This section is managed by beads. Do not remove these markers.
++if command -v bd >/dev/null 2>&1; then
++  export BD_GIT_HOOK=1
++  _bd_timeout=${BEADS_HOOK_TIMEOUT:-300}
++  if command -v timeout >/dev/null 2>&1; then
++    timeout "$_bd_timeout" bd hooks run post-merge "$@"
++    _bd_exit=$?
++    if [ $_bd_exit -eq 124 ]; then
++      echo >&2 "beads: hook 'post-merge' timed out after ${_bd_timeout}s — continuing without beads"
++      _bd_exit=0
++    fi
++  else
++    bd hooks run post-merge "$@"
++    _bd_exit=$?
++  fi
++  if [ $_bd_exit -eq 3 ]; then
++    echo >&2 "beads: database not initialized — skipping hook 'post-merge'"
++    _bd_exit=0
++  fi
++  if [ $_bd_exit -ne 0 ]; then exit $_bd_exit; fi
++fi
++# --- END BEADS INTEGRATION v1.0.2 ---
+diff --git a/.githooks/pre-commit b/.githooks/pre-commit
+index c666ecd35..709699fb5 100755
+--- a/.githooks/pre-commit
++++ b/.githooks/pre-commit
+@@ -21,3 +21,27 @@ CGO_ENABLED=0 $GOLANGCI_LINT run --new-from-rev=HEAD --fix || exit 1
+ 
+ # Re-stage any auto-fixes from the linter
+ echo "$staged_go_files" | xargs git add
++
++# --- BEGIN BEADS INTEGRATION v1.0.2 ---
++# This section is managed by beads. Do not remove these markers.
++if command -v bd >/dev/null 2>&1; then
++  export BD_GIT_HOOK=1
++  _bd_timeout=${BEADS_HOOK_TIMEOUT:-300}
++  if command -v timeout >/dev/null 2>&1; then
++    timeout "$_bd_timeout" bd hooks run pre-commit "$@"
++    _bd_exit=$?
++    if [ $_bd_exit -eq 124 ]; then
++      echo >&2 "beads: hook 'pre-commit' timed out after ${_bd_timeout}s — continuing without beads"
++      _bd_exit=0
++    fi
++  else
++    bd hooks run pre-commit "$@"
++    _bd_exit=$?
++  fi
++  if [ $_bd_exit -eq 3 ]; then
++    echo >&2 "beads: database not initialized — skipping hook 'pre-commit'"
++    _bd_exit=0
++  fi
++  if [ $_bd_exit -ne 0 ]; then exit $_bd_exit; fi
++fi
++# --- END BEADS INTEGRATION v1.0.2 ---
+diff --git a/.githooks/pre-push b/.githooks/pre-push
+index a82b31fb1..cb3d1349c 100755
+--- a/.githooks/pre-push
++++ b/.githooks/pre-push
+@@ -85,3 +85,27 @@ make install-force
+     disown
+     echo "pre-push: anvil sync backgrounded (tail $LOG for progress)"
+ fi
++
++# --- BEGIN BEADS INTEGRATION v1.0.2 ---
++# This section is managed by beads. Do not remove these markers.
++if command -v bd >/dev/null 2>&1; then
++  export BD_GIT_HOOK=1
++  _bd_timeout=${BEADS_HOOK_TIMEOUT:-300}
++  if command -v timeout >/dev/null 2>&1; then
++    timeout "$_bd_timeout" bd hooks run pre-push "$@"
++    _bd_exit=$?
++    if [ $_bd_exit -eq 124 ]; then
++      echo >&2 "beads: hook 'pre-push' timed out after ${_bd_timeout}s — continuing without beads"
++      _bd_exit=0
++    fi
++  else
++    bd hooks run pre-push "$@"
++    _bd_exit=$?
++  fi
++  if [ $_bd_exit -eq 3 ]; then
++    echo >&2 "beads: database not initialized — skipping hook 'pre-push'"
++    _bd_exit=0
++  fi
++  if [ $_bd_exit -ne 0 ]; then exit $_bd_exit; fi
++fi
++# --- END BEADS INTEGRATION v1.0.2 ---
+diff --git a/.githooks/prepare-commit-msg b/.githooks/prepare-commit-msg
+new file mode 100755
+index 000000000..e10a4fe3b
+--- /dev/null
++++ b/.githooks/prepare-commit-msg
+@@ -0,0 +1,24 @@
++#!/usr/bin/env sh
++# --- BEGIN BEADS INTEGRATION v1.0.2 ---
++# This section is managed by beads. Do not remove these markers.
++if command -v bd >/dev/null 2>&1; then
++  export BD_GIT_HOOK=1
++  _bd_timeout=${BEADS_HOOK_TIMEOUT:-300}
++  if command -v timeout >/dev/null 2>&1; then
++    timeout "$_bd_timeout" bd hooks run prepare-commit-msg "$@"
++    _bd_exit=$?
++    if [ $_bd_exit -eq 124 ]; then
++      echo >&2 "beads: hook 'prepare-commit-msg' timed out after ${_bd_timeout}s — continuing without beads"
++      _bd_exit=0
++    fi
++  else
++    bd hooks run prepare-commit-msg "$@"
++    _bd_exit=$?
++  fi
++  if [ $_bd_exit -eq 3 ]; then
++    echo >&2 "beads: database not initialized — skipping hook 'prepare-commit-msg'"
++    _bd_exit=0
++  fi
++  if [ $_bd_exit -ne 0 ]; then exit $_bd_exit; fi
++fi
++# --- END BEADS INTEGRATION v1.0.2 ---
+-- 
+2.50.1 (Apple Git-155)
+
