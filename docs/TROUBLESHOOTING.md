@@ -840,7 +840,8 @@ Agents may not realize an issue already exists. Prevention strategies:
 - Have agents search first: `bd list --json | grep "title"`
 - Use labels to mark auto-created issues: `bd create "..." -l auto-generated`
 - Review and deduplicate periodically: `bd list | sort`
-- Use `bd merge` to consolidate duplicates: `bd merge bd-2 --into bd-1`
+- Mark duplicates with `bd duplicate bd-2 --of bd-1` (closes bd-2, preserves a reference)
+- Or run `bd duplicates --auto-merge` to consolidate content-identical duplicates in bulk
 
 ### Agent gets confused by complex dependencies
 

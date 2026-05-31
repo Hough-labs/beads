@@ -22,20 +22,6 @@ Updates:
 - All references in other issues
 - Comments and descriptions
 
-## Issue Merge
-
-Merge duplicate issues:
-
-```bash
-bd merge bd-42 bd-43 --into bd-41
-bd merge bd-42 bd-43 --into bd-41 --dry-run
-```
-
-What gets merged:
-- Dependencies → target
-- Text references updated across all issues
-- Source issues closed with merge reason
-
 ## Database Compaction
 
 Reduce database size by compacting old issues:

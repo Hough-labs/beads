@@ -120,17 +120,10 @@ push = ["util", "exec", "--", "sh", "-c", "bd dolt commit && bd dolt push && jj 
 
 ### Merge Conflicts
 
-Configure jj to use beads' merge driver for `.beads/issues.jsonl`:
-
-```toml
-# ~/.config/jj/config.toml
-[merge-tools.beads-merge]
-program = "bd"
-merge-args = ["merge", "$output", "$base", "$left", "$right"]
-merge-conflict-exit-codes = [1]
-```
-
-Then resolve with: `jj resolve --tool=beads-merge .beads/issues.jsonl`
+Beads data lives in Dolt (`refs/dolt/data`), not in any git-tracked file, so jj's
+file-level merge tooling does not need a custom driver for `.beads/`. Resolve
+data conflicts with `bd dolt pull` (cell-level merge) and `bd vc merge` /
+`bd vc status` for branch-level operations.
 
 ## Git Hooks
 
@@ -311,40 +304,25 @@ See [MULTI_REPO_MIGRATION.md](MULTI_REPO_MIGRATION.md) for complete guide.
 
 The Dolt database directory (`.beads/dolt/`) should be gitignored, not tracked via LFS or regular git.
 
-## Custom Merge Driver
+## Conflict Handling
 
-bd includes a built-in merge driver for resolving conflicts in `.beads/issues.jsonl` files. This replaces the standalone `beads-merge` binary that was previously maintained in a separate repository.
-
-### Alternative: Standalone beads-merge Binary (Deprecated)
-
-> **⚠️ Deprecated:** The standalone `beads-merge` binary (previously hosted at `github.com/neongreen/mono`) is no longer maintained and may be incompatible with current versions of bd. Use `bd merge` instead.
-
-The built-in `bd merge` command provides the same functionality:
+Beads stores its data in Dolt under `refs/dolt/data`, separate from git refs.
+Conflicts are resolved at the Dolt layer with cell-level merge, not via a
+file-level git/jj merge driver:
 
 ```bash
-bd merge <output> <base> <left> <right>
+bd dolt pull                  # cell-level auto-merge during sync
+bd vc status                  # show current branch + uncommitted changes
+bd vc merge <branch>          # merge another Dolt branch into current
+bd vc merge <branch> --strategy ours|theirs   # auto-resolve a conflicted merge
 ```
 
-### Jujutsu Integration
-
-> See also: [Branchless Workflows](#branchless-workflows-jujutsu--jj) for a complete guide.
-
-**For [Jujutsu](https://martinvonz.github.io/jj/) users**, add to `~/.config/jj/config.toml`:
-
-```toml
-[merge-tools.beads-merge]
-program = "bd"
-merge-args = ["merge", "$output", "$base", "$left", "$right"]
-merge-conflict-exit-codes = [1]
-```
-
-Then resolve conflicts with:
-
-```bash
-jj resolve --tool=beads-merge .beads/issues.jsonl
-```
-
-This configures Jujutsu to invoke `bd merge` as its merge tool, restricted to `.beads/issues.jsonl` (since it only handles beads data conflicts, not general file conflicts).
+> **History note:** Earlier versions of bd vendored a JSONL-based 3-way merge
+> driver (`bd merge`, originally `beads-merge` from `github.com/neongreen/mono`)
+> for `.beads/issues.jsonl` conflicts. That driver was removed in early 2026
+> when bd moved to Dolt as the sole source of truth. If you have leftover
+> `merge.beads.driver` git config from an older install, run
+> `git config --unset merge.beads.driver` and `git config --unset merge.beads.name`.
 
 ## See Also
 

@@ -44,6 +44,9 @@ Reference for bd Latest. Generated from `bd help --all`.
 - [bd q](#bd-q) — Quick capture: create issue and output only ID
 - [bd query](#bd-query) — Query issues using a simple query language
 - [bd reopen](#bd-reopen) — Reopen one or more closed issues
+- [bd req](#bd-req) — Link beads to requirement IDs
+  - [bd req find](#bd-req-find) — Find beads linked to a requirement
+  - [bd req list](#bd-req-list) — Show requirements linked to a bead
 - [bd search](#bd-search) — Search issues by text query
 - [bd set-state](#bd-set-state) — Set operational state (creates event + updates label)
 - [bd show](#bd-show) — Show issue details
@@ -66,6 +69,7 @@ Reference for bd Latest. Generated from `bd help --all`.
 - [bd stale](#bd-stale) — Show stale issues (not updated recently)
 - [bd status](#bd-status) — Show issue database overview and statistics
 - [bd statuses](#bd-statuses) — List valid issue statuses
+- [bd trace](#bd-trace) — Requirement traceability summary
 - [bd types](#bd-types) — List valid issue types
 
 ### Dependencies & Structure:
@@ -102,7 +106,12 @@ Reference for bd Latest. Generated from `bd help --all`.
   - [bd backup sync](#bd-backup-sync) — Push database to configured Dolt backup
 - [bd branch](#bd-branch) — List or create branches
 - [bd export](#bd-export) — Export issues to JSONL format
-- [bd federation](#bd-federation) — Manage peer-to-peer federation (requires CGO)
+- [bd federation](#bd-federation) — Manage peer-to-peer federation with other workspaces
+  - [bd federation add-peer](#bd-federation-add-peer) — Add a federation peer with optional SQL credentials
+  - [bd federation list-peers](#bd-federation-list-peers) — List configured federation peers
+  - [bd federation remove-peer](#bd-federation-remove-peer) — Remove a federation peer
+  - [bd federation status](#bd-federation-status) — Show federation sync status
+  - [bd federation sync](#bd-federation-sync) — Synchronize with a peer town
 - [bd import](#bd-import) — Import issues from a JSONL file or stdin into the database
 - [bd restore](#bd-restore) — Restore full history of a compacted issue from Dolt history
 - [bd vc](#bd-vc) — Version control operations
@@ -1212,6 +1221,39 @@ bd reopen [id...] [flags]
   -r, --reason string   Reason for reopening
 ```
 
+### bd req
+
+Link one or more requirement IDs to a bead.
+
+Sets the spec_id field to the first requirement ID. If multiple IDs are
+provided, all are stored in metadata.requirements.
+
+Examples:
+  bd req bd-abc R-001                  # Link single requirement
+  bd req bd-abc R-001 R-002 R-003      # Link multiple requirements
+  bd req list bd-abc                    # Show linked requirements
+  bd req find R-001                     # Find beads linked to R-001
+
+```
+bd req <bead-id> <requirement-id> [requirement-id...]
+```
+
+#### bd req find
+
+Find beads linked to a requirement
+
+```
+bd req find <requirement-id>
+```
+
+#### bd req list
+
+Show requirements linked to a bead
+
+```
+bd req list <bead-id>
+```
+
 ### bd search
 
 Search issues across title and ID (excludes closed issues by default).
@@ -1737,6 +1779,26 @@ Examples:
 
 ```
 bd statuses
+```
+
+### bd trace
+
+Show which requirements have beads and their status breakdown.
+
+Queries all beads with spec_id set and groups by requirement ID.
+
+Examples:
+  bd trace                          # All requirements
+  bd trace --spec-prefix auth       # Only auth.* requirements
+
+```
+bd trace [flags]
+```
+
+**Flags:**
+
+```
+      --spec-prefix string   Filter by spec_id prefix
 ```
 
 ### bd types
@@ -2373,17 +2435,114 @@ bd export [flags]
 
 ### bd federation
 
-Federation commands require CGO and the Dolt storage backend.
-
-This binary was built without CGO support. To use federation features:
-  1. Use pre-built binaries from GitHub releases, or
-  2. Build from source with CGO enabled
+Manage peer-to-peer federation between Dolt-backed beads databases.
 
 Federation enables synchronized issue tracking across multiple workspaces,
 each maintaining their own Dolt database while sharing updates via remotes.
 
+Requires the Dolt storage backend.
+
 ```
 bd federation
+```
+
+#### bd federation add-peer
+
+Add a new federation peer remote with optional SQL user authentication.
+
+The URL can be:
+  - dolthub://org/repo      DoltHub hosted repository
+  - host:port/database      Direct dolt sql-server connection
+  - file:///path/to/repo    Local file path (for testing)
+
+Credentials are encrypted and stored locally. They are used automatically
+when syncing with the peer. If --user is provided without --password,
+you will be prompted for the password interactively.
+
+Examples:
+  bd federation add-peer town-beta dolthub://acme/town-beta-beads
+  bd federation add-peer town-gamma 192.168.1.100:3306/beads --user sync-bot
+  bd federation add-peer partner https://partner.example.com/beads --user admin --password secret
+
+```
+bd federation add-peer <name> <url> [flags]
+```
+
+**Flags:**
+
+```
+  -p, --password string      SQL password (prompted if --user set without --password)
+      --sovereignty string   Sovereignty tier (T1, T2, T3, T4)
+  -u, --user string          SQL username for authentication
+```
+
+#### bd federation list-peers
+
+List configured federation peers
+
+```
+bd federation list-peers
+```
+
+#### bd federation remove-peer
+
+Remove a federation peer
+
+```
+bd federation remove-peer <name>
+```
+
+#### bd federation status
+
+Show synchronization status with peer towns.
+
+Displays:
+  - Configured peers and their URLs
+  - Commits ahead/behind each peer
+  - Whether there are unresolved conflicts
+
+Examples:
+  bd federation status                    # Status for all peers
+  bd federation status --peer town-beta   # Status for specific peer
+
+```
+bd federation status [--peer name] [flags]
+```
+
+**Flags:**
+
+```
+      --peer string   Specific peer to check
+```
+
+#### bd federation sync
+
+Pull from and push to peer towns.
+
+Without --peer, syncs with all configured peers.
+With --peer, syncs only with the specified peer.
+
+Handles merge conflicts using the configured strategy:
+  --strategy ours    Keep local changes on conflict
+  --strategy theirs  Accept remote changes on conflict
+
+If no strategy is specified and conflicts occur, the sync will pause
+and report which tables have conflicts for manual resolution.
+
+Examples:
+  bd federation sync                      # Sync with all peers
+  bd federation sync --peer town-beta     # Sync with specific peer
+  bd federation sync --strategy theirs    # Auto-resolve using remote values
+
+```
+bd federation sync [--peer name] [flags]
+```
+
+**Flags:**
+
+```
+      --peer string       Specific peer to sync with
+      --strategy string   Conflict resolution strategy (ours|theirs)
 ```
 
 ### bd import
