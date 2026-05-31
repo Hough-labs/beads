@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Pre-push hook: on anvil branch, regenerate patches/ and fold into HEAD.
+# Ensures patches/ always reflects the current divergence before pushing.
+# Installed via: git config core.hooksPath .githooks (run by make install)
+
+set -euo pipefail
+
+BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null) || exit 0
+[ "$BRANCH" = "anvil" ] || exit 0
+
+make patches --quiet
+
+if ! git diff --quiet patches/; then
+    git add patches/
+    git commit --amend --no-edit --quiet
+    echo "pre-push: patches/ refreshed and folded into HEAD"
+fi

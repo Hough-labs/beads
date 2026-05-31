@@ -9,7 +9,7 @@ SHELL := $(subst cmd,bin,$(subst git.exe,bash.exe,$(GIT_BASH)))
 endif
 endif
 
-.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean clean-test-tmp install install-force help check-up-to-date fmt fmt-check
+.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean clean-test-tmp install install-force help check-up-to-date fmt fmt-check patches upgrade
 
 # Default target
 all: build
@@ -129,18 +129,21 @@ bench-quick:
 # Check that local branch is up to date with origin/main
 check-up-to-date:
 ifndef SKIP_UPDATE_CHECK
-	@# Skip check on detached HEAD (tag checkouts, CI builds)
-	@if ! git symbolic-ref HEAD >/dev/null 2>&1; then exit 0; fi
-	@git fetch origin main --quiet 2>/dev/null || true
-	@LOCAL=$$(git rev-parse HEAD 2>/dev/null); \
-	REMOTE=$$(git rev-parse origin/main 2>/dev/null); \
-	if [ -n "$$REMOTE" ] && [ "$$LOCAL" != "$$REMOTE" ]; then \
-		echo "ERROR: Local branch is not up to date with origin/main"; \
-		echo "  Local:  $$(git rev-parse --short HEAD)"; \
-		echo "  Remote: $$(git rev-parse --short origin/main)"; \
-		echo "Run 'git pull' first, or use 'make install-force' to override"; \
-		exit 1; \
-	fi
+	@{ \
+		git symbolic-ref HEAD >/dev/null 2>&1 || exit 0; \
+		BRANCH=$$(git symbolic-ref --short HEAD 2>/dev/null); \
+		[ "$$BRANCH" = "anvil" ] && exit 0; \
+		git fetch origin main --quiet 2>/dev/null || true; \
+		LOCAL=$$(git rev-parse HEAD 2>/dev/null); \
+		REMOTE=$$(git rev-parse origin/main 2>/dev/null); \
+		if [ -n "$$REMOTE" ] && [ "$$LOCAL" != "$$REMOTE" ]; then \
+			echo "ERROR: Local branch is not up to date with origin/main"; \
+			echo "  Local:  $$(git rev-parse --short HEAD)"; \
+			echo "  Remote: $$(git rev-parse --short origin/main)"; \
+			echo "Run 'git pull' first, or use 'make install-force' to override"; \
+			exit 1; \
+		fi; \
+	}
 endif
 
 # Install bd to ~/.local/bin (builds, signs on macOS, and copies)
@@ -205,6 +208,24 @@ clean-test-tmp:
 	@echo "Sweeping orphaned cmd/bd test temp dirs from $${TMPDIR:-/tmp}..."
 	@./scripts/clean-test-tmp.sh
 
+# Export current local commits (anvil..upstream/main divergence) to patches/.
+# Run this after adding or editing a local patch commit.
+#   make patches
+patches:
+	@echo "Exporting patches from anvil -> upstream/main divergence..."
+	@rm -f patches/*.patch
+	@git format-patch upstream/main..HEAD --output-directory patches/
+	@echo "Patches written to patches/:"
+	@ls patches/*.patch 2>/dev/null | sed 's|patches/||'
+
+# Upgrade to latest upstream and replay local patches.
+# Fetches upstream/main, resets anvil to it, then applies patches/*.patch.
+# Shows incoming commits, handles conflicts with clear instructions, and
+# offers to build+install on success.
+#   make upgrade
+upgrade:
+	@bash scripts/upgrade-anvil.sh
+
 # Show help
 help:
 	@echo "Beads Makefile targets:"
@@ -225,4 +246,6 @@ help:
 	@echo "  make check-docs   - Validate docs against CLI flags"
 	@echo "  make clean        - Remove build artifacts and profile files"
 	@echo "  make clean-test-tmp - Sweep orphaned cmd/bd test temp dirs from \$$TMPDIR"
+	@echo "  make patches      - Export local commits to patches/ directory"
+	@echo "  make upgrade      - Fetch upstream, reset, replay patches/"
 	@echo "  make help         - Show this help message"
