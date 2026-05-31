@@ -15,3 +15,7 @@ if ! git diff --quiet patches/; then
     git commit --amend --no-edit --quiet
     echo "pre-push: patches/ refreshed and folded into HEAD"
 fi
+
+# --- Build and install to ~/go/bin ---
+echo "beads: rebuilding and installing to ~/go/bin..."
+make install-force

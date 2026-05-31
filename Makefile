@@ -19,7 +19,7 @@ GIT_BUILD := $(shell git rev-parse --short HEAD)
 ifeq ($(OS),Windows_NT)
 INSTALL_DIR := $(USERPROFILE)/.local/bin
 else
-INSTALL_DIR := $(HOME)/.local/bin
+INSTALL_DIR := $(HOME)/go/bin
 endif
 
 # Dolt backend requires CGO for embedded database support.
@@ -160,8 +160,21 @@ else
 	@cp $(BUILD_DIR)/bd $(INSTALL_DIR)/bd
 	@echo "Installed bd to $(INSTALL_DIR)/bd"
 	@rm -f $(INSTALL_DIR)/beads
-	@ln -s bd $(INSTALL_DIR)/beads
+	@ln -sf bd $(INSTALL_DIR)/beads
 	@echo "Created 'beads' alias -> bd"
+	@# Clean stale copies from previous install locations (including mise Go paths)
+	@for stale in $(HOME)/.local/bin/bd $(HOME)/.local/bin/beads; do \
+		if [ -f "$$stale" ] && [ "$$stale" != "$(INSTALL_DIR)/bd" ] && [ "$$stale" != "$(INSTALL_DIR)/beads" ]; then \
+			echo "Removing stale $$stale"; \
+			rm -f "$$stale"; \
+		fi; \
+	done
+	@for stale in $(HOME)/.local/share/mise/installs/go/*/bin/bd; do \
+		if [ -f "$$stale" ] || [ -L "$$stale" ]; then \
+			echo "Removing stale mise binary $$stale"; \
+			rm -f "$$stale"; \
+		fi; \
+	done
 endif
 	@git config core.hooksPath .githooks 2>/dev/null && echo "Configured git hooks (.githooks/)" || true
 
