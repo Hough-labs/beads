@@ -138,3 +138,10 @@ bd_test
 
 # Beads / Dolt files (added by bd init)
 .beads/proxieddb/
+
+# Mantle-compiled agent config (generated, do not commit)
+.pi/
+
+# Handoff docs (ephemeral agent notes — local only)
+handoffs/
+.handoffs/
