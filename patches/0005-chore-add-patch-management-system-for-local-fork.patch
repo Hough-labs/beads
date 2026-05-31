@@ -1,0 +1,108 @@
+From e1daefa5e57764763b6a3abf392120a23f1e2ce3 Mon Sep 17 00:00:00 2001
+From: Hunter B Hough <git@hough.ink>
+Date: Sat, 4 Apr 2026 06:06:20 -0400
+Subject: [PATCH 05/21] chore: add patch management system for local fork
+
+Introduces a patches/ directory and two Makefile targets to formalize
+how local commits are maintained on top of upstream releases.
+
+- patches/0001-0004: current anvil divergence exported as format-patch files
+- make patches: regenerates patches/ from current HEAD vs upstream/main
+- make upgrade: fetches upstream, resets anvil, replays patches via git am
+- CLAUDE.md: documents the workflow (patch after commit, upgrade procedure)
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+---
+ CLAUDE.md | 28 ++++++++++++++++++++++++++--
+ Makefile  | 26 +++++++++++++++++++++++++-
+ 2 files changed, 51 insertions(+), 3 deletions(-)
+
+diff --git a/CLAUDE.md b/CLAUDE.md
+index c25aaa5c..27e64e0b 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -1,6 +1,30 @@
+-# Instructions for AI Agents Working on Beads
++# Emma — Beads Crew
+ 
+-## Project Overview
++## Patch Management (Local Fork)
++
++This repo is a fork of `upstream` (gastownhall/beads). Local changes live as
++commits on the `anvil` branch and are exported to `patches/*.patch` for
++portability and replay.
++
++### Workflow
++
++**After writing a new local commit:**
++```bash
++make patches   # regenerates all patches/ from current anvil divergence
++git add patches/
++git commit --amend --no-edit  # fold into the same commit, or make a separate chore commit
++```
++
++**When upgrading to a new upstream release:**
++```bash
++make upgrade   # git fetch upstream && reset --hard && git am patches/*.patch
++```
++
++If `git am` hits a conflict, resolve it, `git add` the file, then `git am --continue`.
++After resolving all conflicts, run `make patches` again to refresh the patch files.
++
++**Never commit directly to `main`** — it tracks `upstream/main` exactly.
++All local work goes on `anvil`.
+ 
+ This is **beads** (command: `bd`), an issue tracker designed for AI-supervised coding workflows. We dogfood our own tool!
+ 
+diff --git a/Makefile b/Makefile
+index 800a6dff..65a17391 100644
+--- a/Makefile
++++ b/Makefile
+@@ -9,7 +9,7 @@ SHELL := $(subst cmd,bin,$(subst git.exe,bash.exe,$(GIT_BASH)))
+ endif
+ endif
+ 
+-.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean install install-force help check-up-to-date fmt fmt-check
++.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean install install-force help check-up-to-date fmt fmt-check patches upgrade
+ 
+ # Default target
+ all: build
+@@ -194,6 +194,28 @@ clean:
+ 	rm -f internal/storage/dolt/bench-cpu-*.prof
+ 	rm -f beads-perf-*.prof
+ 
++# Export current local commits (anvil..upstream/main divergence) to patches/.
++# Run this after adding or editing a local patch commit.
++#   make patches
++patches:
++	@echo "Exporting patches from anvil -> upstream/main divergence..."
++	@rm -f patches/*.patch
++	@git format-patch upstream/main..HEAD --output-directory patches/
++	@echo "Patches written to patches/:"
++	@ls patches/*.patch 2>/dev/null | sed 's|patches/||'
++
++# Upgrade to latest upstream and replay local patches.
++# Fetches upstream/main, resets anvil to it, then applies patches/*.patch.
++#   make upgrade
++upgrade:
++	@echo "Fetching upstream..."
++	@git fetch upstream
++	@echo "Resetting anvil to upstream/main..."
++	@git reset --hard upstream/main
++	@echo "Applying local patches..."
++	@git am patches/*.patch
++	@echo "Done. Local patches applied on top of upstream/main."
++
+ # Show help
+ help:
+ 	@echo "Beads Makefile targets:"
+@@ -213,4 +235,6 @@ help:
+ 	@echo "  make fmt-check    - Check Go formatting (for CI)"
+ 	@echo "  make check-docs   - Validate docs against CLI flags"
+ 	@echo "  make clean        - Remove build artifacts and profile files"
++	@echo "  make patches      - Export local commits to patches/ directory"
++	@echo "  make upgrade      - Fetch upstream, reset, replay patches/"
+ 	@echo "  make help         - Show this help message"
+-- 
+2.50.1 (Apple Git-155)
+

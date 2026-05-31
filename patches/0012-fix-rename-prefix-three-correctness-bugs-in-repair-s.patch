@@ -1,0 +1,382 @@
+From 4f1b62d46c12149e2c46ab9bf4b1480467679ce8 Mon Sep 17 00:00:00 2001
+From: Hunter B Hough <git@hough.ink>
+Date: Wed, 8 Apr 2026 10:31:55 -0400
+Subject: [PATCH 12/21] fix(rename-prefix): three correctness bugs in repair +
+ simple rename
+
+Three independent bugs in `bd rename-prefix` could corrupt a database
+during a routine prefix rename. Discovered while migrating gastown rigs
+from short two-char prefixes (e.g. `ba`) to project-name prefixes
+(e.g. `bastion`):
+
+1. RenameDependencyPrefixInTx used unanchored `LIKE CONCAT(?, '%')` so
+   an old prefix that was a substring of another live prefix (e.g. `ba`
+   vs `bastion`) matched the target's own dependency rows. Updating
+   them with `CONCAT(newPrefix, SUBSTRING(...))` mangled them into
+   things like `bastionstion-zbdt.1` and triggered FK violations.
+   Fixed by anchoring on the trailing hyphen and adjusting the
+   SUBSTRING offset.
+
+2. renamePrefixInDB iterated every issue and unconditionally prepended
+   the new prefix, even when the issue's ID already started with the
+   target prefix. In a partially-migrated database (e.g. left over
+   from a failed earlier rename) this produced double-prefixed IDs
+   like `bastion-bastion-foo`. Fixed by skipping rows that don't
+   actually carry the old prefix.
+
+3. repairPrefixes always generated content-hash IDs for incorrect
+   issues, destroying meaningful suffixes such as `<old>-rig-<rig>`
+   and `<old>-witness` that downstream tools (e.g. `gt doctor`)
+   expect to find by name. Fixed by trying the semantic mapping
+   `<targetPrefix>-<suffix>` first and falling back to a hash only
+   when that name is already taken in the rename batch.
+
+Adds three regression tests:
+- TestRepairPrefixSubstringCollision (fix 1)
+- TestRenamePrefixInDBSkipsAlreadyMigrated (fix 2)
+- TestRepairPreservesSemanticSuffix (fix 3)
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+---
+ cmd/bd/rename_prefix.go               |  27 ++++-
+ cmd/bd/rename_prefix_repair_test.go   | 167 ++++++++++++++++++++++++++
+ cmd/bd/rename_prefix_test.go          |  73 +++++++++++
+ internal/storage/issueops/bulk_ops.go |  11 +-
+ 4 files changed, 270 insertions(+), 8 deletions(-)
+
+diff --git a/cmd/bd/rename_prefix.go b/cmd/bd/rename_prefix.go
+index 4b472ea3..64aa281f 100644
+--- a/cmd/bd/rename_prefix.go
++++ b/cmd/bd/rename_prefix.go
+@@ -261,11 +261,23 @@ func repairPrefixes(ctx context.Context, st storage.DoltStorage, actorName strin
+ 		usedIDs[issue.ID] = true
+ 	}
+ 
+-	// Generate hash IDs for all incorrect issues
++	// Generate new IDs for all incorrect issues. Prefer the semantic mapping
++	// `<targetPrefix>-<suffix>` (where <suffix> is whatever followed the old
++	// prefix and its hyphen) so that meaningful IDs like `ba-rig-bastion`
++	// become `bastion-rig-bastion` instead of an opaque hash. Fall back to a
++	// content-hash ID only when the semantic name would collide with an
++	// already-used ID in this batch.
+ 	for _, is := range incorrectIssues {
+-		newID, err := generateRepairHashID(targetPrefix, is.issue, actorName, usedIDs)
+-		if err != nil {
+-			return fmt.Errorf("failed to generate hash ID for %s: %w", is.issue.ID, err)
++		var newID string
++		semantic := targetPrefix + "-" + strings.TrimPrefix(is.issue.ID, is.prefix+"-")
++		if !usedIDs[semantic] && semantic != targetPrefix+"-" {
++			newID = semantic
++		} else {
++			hashed, err := generateRepairHashID(targetPrefix, is.issue, actorName, usedIDs)
++			if err != nil {
++				return fmt.Errorf("failed to generate hash ID for %s: %w", is.issue.ID, err)
++			}
++			newID = hashed
+ 		}
+ 		renameMap[is.issue.ID] = newID
+ 		usedIDs[newID] = true
+@@ -390,6 +402,13 @@ func renamePrefixInDB(ctx context.Context, oldPrefix, newPrefix string, issues [
+ 
+ 	for _, issue := range issues {
+ 		oldID := issue.ID
++		// Skip issues that don't actually have the old prefix. Without this
++		// guard, mixed-state databases (e.g. after a partially-applied repair
++		// left some rows already on the new prefix) would get the new prefix
++		// prepended a second time, producing IDs like 'bastion-bastion-foo'.
++		if !strings.HasPrefix(oldID, oldPrefix+"-") {
++			continue
++		}
+ 		numPart := strings.TrimPrefix(oldID, oldPrefix+"-")
+ 		newID := fmt.Sprintf("%s-%s", newPrefix, numPart)
+ 
+diff --git a/cmd/bd/rename_prefix_repair_test.go b/cmd/bd/rename_prefix_repair_test.go
+index 7b73e4ea..9fd12bf9 100644
+--- a/cmd/bd/rename_prefix_repair_test.go
++++ b/cmd/bd/rename_prefix_repair_test.go
+@@ -126,3 +126,170 @@ func TestRepairMultiplePrefixes(t *testing.T) {
+ 		}
+ 	}
+ }
++
++// TestRepairPrefixSubstringCollision is a regression test for a bug where
++// RenameDependencyPrefixInTx used an unanchored LIKE ('ba%') so an old prefix
++// that was a substring of the target prefix (e.g. 'ba' vs 'bastion') would
++// also match the target's own dependency rows and corrupt them
++// (`bastion-foo` -> `bastionstion-foo`), producing FK violations.
++//
++// Setup: target prefix 'bastion' with both bastion-* and ba-* issues, plus
++// dependency rows on each side. Repair must succeed and preserve bastion-*.
++func TestRepairPrefixSubstringCollision(t *testing.T) {
++	tmpDir := t.TempDir()
++	testDBPath := filepath.Join(tmpDir, "test.db")
++
++	ctx := context.Background()
++
++	testStore, err := dolt.New(ctx, &dolt.Config{Path: testDBPath})
++	if err != nil {
++		t.Skipf("skipping: Dolt server not available: %v", err)
++	}
++	defer testStore.Close()
++
++	oldStore := store
++	oldActor := actor
++	oldDBPath := dbPath
++	store = testStore
++	actor = "test"
++	dbPath = testDBPath
++	defer func() {
++		store = oldStore
++		actor = oldActor
++		dbPath = oldDBPath
++	}()
++
++	if err := testStore.SetConfig(ctx, "issue_prefix", "bastion"); err != nil {
++		t.Fatalf("failed to set prefix: %v", err)
++	}
++
++	// 'bastion-*' is the canonical prefix; 'ba-*' is the corrupting substring.
++	testIssues := []types.Issue{
++		{ID: "bastion-aaa", Title: "bastion A", Status: types.StatusOpen, Priority: 2, IssueType: types.TypeTask},
++		{ID: "bastion-bbb", Title: "bastion B", Status: types.StatusOpen, Priority: 2, IssueType: types.TypeTask},
++		{ID: "ba-x", Title: "ba X", Status: types.StatusOpen, Priority: 2, IssueType: types.TypeTask},
++		{ID: "ba-y", Title: "ba Y", Status: types.StatusOpen, Priority: 2, IssueType: types.TypeTask},
++	}
++	for i := range testIssues {
++		if err := testStore.CreateIssue(ctx, &testIssues[i], "test"); err != nil {
++			t.Fatalf("failed to create issue %s: %v", testIssues[i].ID, err)
++		}
++	}
++
++	// Cross-prefix dependency: ba-x blocks bastion-aaa. After repair, the
++	// dependency row referencing 'bastion-aaa' must remain intact (the bug
++	// rewrote it to 'bastionstion-aaa' and the FK update later failed).
++	deps := []*types.Dependency{
++		{IssueID: "bastion-aaa", DependsOnID: "ba-x", Type: types.DepBlocks},
++		{IssueID: "ba-y", DependsOnID: "bastion-bbb", Type: types.DepBlocks},
++	}
++	for _, d := range deps {
++		if err := testStore.AddDependency(ctx, d, "test"); err != nil {
++			t.Fatalf("failed to add dependency: %v", err)
++		}
++	}
++
++	allIssues, err := testStore.SearchIssues(ctx, "", types.IssueFilter{})
++	if err != nil {
++		t.Fatalf("failed to search issues: %v", err)
++	}
++	prefixes := detectPrefixes(allIssues)
++	if len(prefixes) != 2 {
++		t.Fatalf("expected 2 prefixes, got %d: %v", len(prefixes), prefixes)
++	}
++
++	// This is the call that previously failed with an FK violation on
++	// `bastionstion-aaa` because the unanchored LIKE in
++	// RenameDependencyPrefixInTx mangled bastion-* dependency rows.
++	if err := repairPrefixes(ctx, testStore, "test", "bastion", allIssues, prefixes, false); err != nil {
++		t.Fatalf("repair failed (substring collision regression): %v", err)
++	}
++
++	// All issues must now have the bastion- prefix.
++	allIssues, err = testStore.SearchIssues(ctx, "", types.IssueFilter{})
++	if err != nil {
++		t.Fatalf("failed to search issues after repair: %v", err)
++	}
++	for _, issue := range allIssues {
++		if len(issue.ID) < 8 || issue.ID[:8] != "bastion-" {
++			t.Fatalf("issue %s does not have bastion- prefix", issue.ID)
++		}
++	}
++
++	// The original bastion-aaa / bastion-bbb must survive untouched.
++	for _, id := range []string{"bastion-aaa", "bastion-bbb"} {
++		issue, err := testStore.GetIssue(ctx, id)
++		if err != nil || issue == nil {
++			t.Fatalf("expected %s to survive repair, got err=%v issue=%v", id, err, issue)
++		}
++	}
++}
++
++// TestRepairPreservesSemanticSuffix verifies that repair maps
++// `<oldPrefix>-<suffix>` to `<targetPrefix>-<suffix>` rather than to an
++// opaque content-hash ID. This is what makes identity beads like
++// `ba-rig-bastion` survive a rename as `bastion-rig-bastion` (which
++// downstream tools like gt doctor expect to find by name).
++func TestRepairPreservesSemanticSuffix(t *testing.T) {
++	tmpDir := t.TempDir()
++	testDBPath := filepath.Join(tmpDir, "test.db")
++
++	ctx := context.Background()
++
++	testStore, err := dolt.New(ctx, &dolt.Config{Path: testDBPath})
++	if err != nil {
++		t.Skipf("skipping: Dolt server not available: %v", err)
++	}
++	defer testStore.Close()
++
++	oldStore := store
++	oldActor := actor
++	oldDBPath := dbPath
++	store = testStore
++	actor = "test"
++	dbPath = testDBPath
++	defer func() {
++		store = oldStore
++		actor = oldActor
++		dbPath = oldDBPath
++	}()
++
++	if err := testStore.SetConfig(ctx, "issue_prefix", "ba"); err != nil {
++		t.Fatalf("failed to set prefix: %v", err)
++	}
++
++	// 'ba-' issues need migration to 'bastion-'. Their semantic suffixes
++	// (rig-bastion, bastion-witness, ag8) should all be preserved.
++	testIssues := []types.Issue{
++		{ID: "ba-rig-bastion", Title: "rig identity", Status: types.StatusOpen, Priority: 2, IssueType: types.TypeTask},
++		{ID: "ba-bastion-witness", Title: "witness patrol", Status: types.StatusOpen, Priority: 2, IssueType: types.TypeTask},
++		{ID: "ba-ag8", Title: "refinery patrol", Status: types.StatusOpen, Priority: 2, IssueType: types.TypeTask},
++	}
++	for i := range testIssues {
++		if err := testStore.CreateIssue(ctx, &testIssues[i], "test"); err != nil {
++			t.Fatalf("failed to create issue %s: %v", testIssues[i].ID, err)
++		}
++	}
++
++	allIssues, err := testStore.SearchIssues(ctx, "", types.IssueFilter{})
++	if err != nil {
++		t.Fatalf("failed to search issues: %v", err)
++	}
++	prefixes := detectPrefixes(allIssues)
++
++	// Force the repair path even with one detected prefix by passing the
++	// target prefix that doesn't match (mirrors the real-world setup where
++	// rename-prefix bastion --repair is invoked against a 'ba'-only db).
++	if err := repairPrefixes(ctx, testStore, "test", "bastion", allIssues, prefixes, false); err != nil {
++		t.Fatalf("repair failed: %v", err)
++	}
++
++	// Each issue must now have its semantic ID, not a hash.
++	expected := []string{"bastion-rig-bastion", "bastion-bastion-witness", "bastion-ag8"}
++	for _, want := range expected {
++		issue, err := testStore.GetIssue(ctx, want)
++		if err != nil || issue == nil {
++			t.Fatalf("expected semantic ID %s after repair, got err=%v issue=%v", want, err, issue)
++		}
++	}
++}
+diff --git a/cmd/bd/rename_prefix_test.go b/cmd/bd/rename_prefix_test.go
+index cbc5974b..dabfcf66 100644
+--- a/cmd/bd/rename_prefix_test.go
++++ b/cmd/bd/rename_prefix_test.go
+@@ -221,3 +221,76 @@ func TestRenamePrefixInDB(t *testing.T) {
+ 		t.Errorf("Expected ID 'new-1', got %q", newIssue.ID)
+ 	}
+ }
++
++// TestRenamePrefixInDBSkipsAlreadyMigrated is a regression test for a bug
++// where renamePrefixInDB iterated every issue and unconditionally prepended
++// the new prefix, even on issues whose ID already started with the new
++// prefix. In a partially-migrated database (e.g. left over from a failed
++// repair) that produced double-prefixed IDs like 'bastion-bastion-foo'.
++func TestRenamePrefixInDBSkipsAlreadyMigrated(t *testing.T) {
++	tmpDir := t.TempDir()
++	testDBPath := filepath.Join(tmpDir, "test.db")
++
++	testStore, err := dolt.New(context.Background(), &dolt.Config{Path: testDBPath})
++	if err != nil {
++		t.Skipf("skipping: Dolt server not available: %v", err)
++	}
++	t.Cleanup(func() {
++		testStore.Close()
++		os.Remove(testDBPath)
++	})
++
++	ctx := context.Background()
++	store = testStore
++	actor = "test-actor"
++
++	if err := testStore.SetConfig(ctx, "issue_prefix", "ba"); err != nil {
++		t.Fatalf("set config: %v", err)
++	}
++
++	// Mixed state: one issue still on the old short prefix and one already
++	// migrated to the new long prefix (which is a strict superstring of the
++	// old). The buggy implementation rewrote the migrated row to
++	// 'bastion-bastion-already' and corrupted the database.
++	stale := &types.Issue{
++		ID:        "ba-stale",
++		Title:     "stale",
++		Status:    types.StatusOpen,
++		Priority:  2,
++		IssueType: types.TypeTask,
++	}
++	already := &types.Issue{
++		ID:        "bastion-already",
++		Title:     "already migrated",
++		Status:    types.StatusOpen,
++		Priority:  2,
++		IssueType: types.TypeTask,
++	}
++	if err := testStore.CreateIssue(ctx, stale, "test"); err != nil {
++		t.Fatalf("create stale: %v", err)
++	}
++	if err := testStore.CreateIssue(ctx, already, "test"); err != nil {
++		t.Fatalf("create already: %v", err)
++	}
++
++	if err := renamePrefixInDB(ctx, "ba", "bastion", []*types.Issue{stale, already}); err != nil {
++		t.Fatalf("renamePrefixInDB failed: %v", err)
++	}
++
++	// Stale row should now exist as bastion-stale.
++	got, err := testStore.GetIssue(ctx, "bastion-stale")
++	if err != nil || got == nil {
++		t.Fatalf("expected bastion-stale to exist, got err=%v issue=%v", err, got)
++	}
++
++	// Already-migrated row must still exist with its original ID, NOT
++	// double-prefixed as 'bastion-bastion-already'.
++	got, err = testStore.GetIssue(ctx, "bastion-already")
++	if err != nil || got == nil {
++		t.Fatalf("expected bastion-already to survive untouched, got err=%v issue=%v", err, got)
++	}
++	doubled, _ := testStore.GetIssue(ctx, "bastion-bastion-already")
++	if doubled != nil {
++		t.Fatalf("regression: rename produced double-prefixed ID %q", doubled.ID)
++	}
++}
+diff --git a/internal/storage/issueops/bulk_ops.go b/internal/storage/issueops/bulk_ops.go
+index aa15df1f..33f2aebf 100644
+--- a/internal/storage/issueops/bulk_ops.go
++++ b/internal/storage/issueops/bulk_ops.go
+@@ -315,10 +315,13 @@ func updateWispIDInTx(ctx context.Context, tx *sql.Tx, oldID, newID string, issu
+ 
+ // RenameDependencyPrefixInTx updates the prefix in all dependency records.
+ func RenameDependencyPrefixInTx(ctx context.Context, tx *sql.Tx, oldPrefix, newPrefix string) error {
++	// Anchor LIKE on the trailing hyphen so an old prefix that is a substring
++	// of another live prefix (e.g. 'ba' vs 'bastion') only matches its own
++	// rows. SUBSTRING offset is LENGTH(oldPrefix)+2 to skip the hyphen.
+ 	_, err := tx.ExecContext(ctx, `
+ 		UPDATE dependencies
+-		SET issue_id = CONCAT(?, SUBSTRING(issue_id, LENGTH(?) + 1))
+-		WHERE issue_id LIKE CONCAT(?, '%')
++		SET issue_id = CONCAT(?, '-', SUBSTRING(issue_id, LENGTH(?) + 2))
++		WHERE issue_id LIKE CONCAT(?, '-%')
+ 	`, newPrefix, oldPrefix, oldPrefix)
+ 	if err != nil {
+ 		return fmt.Errorf("update issue_id prefix in dependencies: %w", err)
+@@ -326,8 +329,8 @@ func RenameDependencyPrefixInTx(ctx context.Context, tx *sql.Tx, oldPrefix, newP
+ 
+ 	_, err = tx.ExecContext(ctx, `
+ 		UPDATE dependencies
+-		SET depends_on_id = CONCAT(?, SUBSTRING(depends_on_id, LENGTH(?) + 1))
+-		WHERE depends_on_id LIKE CONCAT(?, '%')
++		SET depends_on_id = CONCAT(?, '-', SUBSTRING(depends_on_id, LENGTH(?) + 2))
++		WHERE depends_on_id LIKE CONCAT(?, '-%')
+ 	`, newPrefix, oldPrefix, oldPrefix)
+ 	if err != nil {
+ 		return fmt.Errorf("update depends_on_id prefix in dependencies: %w", err)
+-- 
+2.50.1 (Apple Git-155)
+

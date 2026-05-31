@@ -1,0 +1,68 @@
+From 36b6d81f57061893a1f1406e53c661e055945a46 Mon Sep 17 00:00:00 2001
+From: Hunter B Hough <git@hough.ink>
+Date: Sun, 12 Apr 2026 14:30:33 -0400
+Subject: [PATCH 14/21] build: install to native ~/go/bin instead of mise GOBIN
+
+Hardcode INSTALL_DIR to ~/go/bin instead of resolving via go env GOBIN
+(which points at the mise Go shim). Also extend stale-binary cleanup
+to sweep mise Go version paths on every install.
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+---
+ .githooks/pre-push |  4 ++--
+ Makefile           | 11 +++++++----
+ 2 files changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/.githooks/pre-push b/.githooks/pre-push
+index 1806f90e..c45d8f1e 100755
+--- a/.githooks/pre-push
++++ b/.githooks/pre-push
+@@ -16,6 +16,6 @@ if ! git diff --quiet patches/; then
+     echo "pre-push: patches/ refreshed and folded into HEAD"
+ fi
+ 
+-# --- Build and install to mise GOBIN ---
+-echo "beads: rebuilding and installing to mise..."
++# --- Build and install to ~/go/bin ---
++echo "beads: rebuilding and installing to ~/go/bin..."
+ make install-force
+diff --git a/Makefile b/Makefile
+index 426f8c44..b40acab6 100644
+--- a/Makefile
++++ b/Makefile
+@@ -19,11 +19,8 @@ GIT_BUILD := $(shell git rev-parse --short HEAD)
+ ifeq ($(OS),Windows_NT)
+ INSTALL_DIR := $(USERPROFILE)/.local/bin
+ else
+-INSTALL_DIR := $(shell go env GOBIN)
+-ifeq ($(INSTALL_DIR),)
+ INSTALL_DIR := $(HOME)/go/bin
+ endif
+-endif
+ 
+ # Dolt backend requires CGO for embedded database support.
+ # Without CGO, builds will fail with "dolt backend requires CGO".
+@@ -164,13 +161,19 @@ else
+ 	@rm -f $(INSTALL_DIR)/beads
+ 	@ln -sf bd $(INSTALL_DIR)/beads
+ 	@echo "Created 'beads' alias -> bd"
+-	@# Clean stale copies from previous install location
++	@# Clean stale copies from previous install locations (including mise Go paths)
+ 	@for stale in $(HOME)/.local/bin/bd $(HOME)/.local/bin/beads; do \
+ 		if [ -f "$$stale" ] && [ "$$stale" != "$(INSTALL_DIR)/bd" ] && [ "$$stale" != "$(INSTALL_DIR)/beads" ]; then \
+ 			echo "Removing stale $$stale"; \
+ 			rm -f "$$stale"; \
+ 		fi; \
+ 	done
++	@for stale in $(HOME)/.local/share/mise/installs/go/*/bin/bd; do \
++		if [ -f "$$stale" ] || [ -L "$$stale" ]; then \
++			echo "Removing stale mise binary $$stale"; \
++			rm -f "$$stale"; \
++		fi; \
++	done
+ endif
+ 	@git config core.hooksPath .githooks 2>/dev/null && echo "Configured git hooks (.githooks/)" || true
+ 
+-- 
+2.50.1 (Apple Git-155)
+

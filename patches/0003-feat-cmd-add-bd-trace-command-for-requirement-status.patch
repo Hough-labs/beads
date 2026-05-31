@@ -1,0 +1,176 @@
+From 43aff05728fb6efb14bd1fff89820dac55075d10 Mon Sep 17 00:00:00 2001
+From: Hunter B Hough <git@hough.ink>
+Date: Fri, 3 Apr 2026 19:19:07 -0400
+Subject: [PATCH 03/21] feat(cmd): add bd trace command for requirement status
+ overview
+
+Groups beads by spec_id, reports count and status breakdown per
+requirement. Supports --spec-prefix filtering and --json output
+for dt sync consumption.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+---
+ cmd/bd/trace.go | 151 ++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 151 insertions(+)
+ create mode 100644 cmd/bd/trace.go
+
+diff --git a/cmd/bd/trace.go b/cmd/bd/trace.go
+new file mode 100644
+index 00000000..4ddc2eeb
+--- /dev/null
++++ b/cmd/bd/trace.go
+@@ -0,0 +1,151 @@
++package main
++
++import (
++	"fmt"
++	"os"
++	"sort"
++	"strings"
++	"text/tabwriter"
++
++	"github.com/spf13/cobra"
++	"github.com/steveyegge/beads/internal/types"
++)
++
++var traceCmd = &cobra.Command{
++	Use:     "trace",
++	GroupID: "views",
++	Short:   "Requirement traceability summary",
++	Long: `Show which requirements have beads and their status breakdown.
++
++Queries all beads with spec_id set and groups by requirement ID.
++
++Examples:
++  bd trace                          # All requirements
++  bd trace --spec-prefix auth       # Only auth.* requirements`,
++	Run: traceRun,
++}
++
++func traceRun(cmd *cobra.Command, _ []string) {
++	ctx := rootCtx
++	prefix, _ := cmd.Flags().GetString("spec-prefix")
++
++	filter := types.IssueFilter{}
++	if prefix != "" {
++		filter.SpecIDPrefix = prefix
++	}
++	// When no prefix is given, SpecIDPrefix="" adds no SQL clause.
++	// We fetch all issues and post-filter by spec_id != "".
++
++	issues, err := store.SearchIssues(ctx, "", filter)
++	if err != nil {
++		FatalErrorRespectJSON("searching: %v", err)
++	}
++
++	// Group by requirement ID, skipping issues with no spec_id.
++	type reqStats struct {
++		total    int
++		byStatus map[types.Status]int
++	}
++	grouped := make(map[string]*reqStats)
++
++	for _, issue := range issues {
++		reqs := getLinkedRequirements(issue)
++		if len(reqs) == 0 && issue.SpecID != "" {
++			reqs = []string{issue.SpecID}
++		}
++		if len(reqs) == 0 {
++			continue
++		}
++		for _, reqID := range reqs {
++			stats, ok := grouped[reqID]
++			if !ok {
++				stats = &reqStats{byStatus: make(map[types.Status]int)}
++				grouped[reqID] = stats
++			}
++			stats.total++
++			stats.byStatus[issue.Status]++
++		}
++	}
++
++	if jsonOutput {
++		type jsonEntry struct {
++			Requirement string         `json:"requirement"`
++			Total       int            `json:"total"`
++			ByStatus    map[string]int `json:"by_status"`
++		}
++		var entries []jsonEntry
++		for req, stats := range grouped {
++			byStatus := make(map[string]int)
++			for s, c := range stats.byStatus {
++				byStatus[string(s)] = c
++			}
++			entries = append(entries, jsonEntry{
++				Requirement: req,
++				Total:       stats.total,
++				ByStatus:    byStatus,
++			})
++		}
++		sort.Slice(entries, func(i, j int) bool {
++			return entries[i].Requirement < entries[j].Requirement
++		})
++		outputJSON(entries)
++		return
++	}
++
++	if len(grouped) == 0 {
++		if prefix != "" {
++			fmt.Printf("No beads found with spec_id matching %q\n", prefix+"*")
++		} else {
++			fmt.Println("No beads found with spec_id set")
++		}
++		os.Exit(1)
++	}
++
++	// Sort requirement IDs for stable output.
++	reqIDs := make([]string, 0, len(grouped))
++	for r := range grouped {
++		reqIDs = append(reqIDs, r)
++	}
++	sort.Strings(reqIDs)
++
++	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
++	fmt.Fprintln(w, "Requirement\tBeads\tStatus")
++	fmt.Fprintln(w, "-----------\t-----\t------")
++	for _, reqID := range reqIDs {
++		stats := grouped[reqID]
++		statusParts := formatStatusBreakdown(stats.byStatus)
++		fmt.Fprintf(w, "%s\t%d\t%s\n", reqID, stats.total, statusParts)
++	}
++	w.Flush()
++}
++
++// formatStatusBreakdown produces a compact summary like "1 closed, 2 open".
++func formatStatusBreakdown(byStatus map[types.Status]int) string {
++	// Order: closed first, then open, then others alphabetically.
++	order := []types.Status{types.StatusClosed, types.StatusOpen, types.StatusInProgress, types.StatusBlocked, types.StatusDeferred}
++	var parts []string
++	seen := make(map[types.Status]bool)
++	for _, s := range order {
++		if c, ok := byStatus[s]; ok {
++			parts = append(parts, fmt.Sprintf("%d %s", c, s))
++			seen[s] = true
++		}
++	}
++	// Remaining statuses (custom, etc.)
++	var remaining []string
++	for s := range byStatus {
++		if !seen[s] {
++			remaining = append(remaining, string(s))
++		}
++	}
++	sort.Strings(remaining)
++	for _, s := range remaining {
++		parts = append(parts, fmt.Sprintf("%d %s", byStatus[types.Status(s)], s))
++	}
++	return strings.Join(parts, ", ")
++}
++
++func init() {
++	traceCmd.Flags().String("spec-prefix", "", "Filter by spec_id prefix")
++	rootCmd.AddCommand(traceCmd)
++}
+-- 
+2.50.1 (Apple Git-155)
+

@@ -1,0 +1,99 @@
+From e64a792d7083f0c4943d784bc74c44414a3eb818 Mon Sep 17 00:00:00 2001
+From: Hunter B Hough <git@hough.ink>
+Date: Thu, 16 Apr 2026 19:20:41 -0400
+Subject: [PATCH 19/21] fix(patches): eliminate recursive self-inclusion and
+ pre-push amend bug
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Two compounding bugs in the patch workflow:
+1. format-patch included patches/ dir contents, causing each regen to
+   double the latest patch size (0021 grew from 41 → 10k+ lines)
+2. Pre-push hook amending HEAD changed the SHA after git captured the
+   push range, causing origin to perpetually diverge from local
+
+Fix: add ':!patches/' pathspec exclusion to format-patch, replace the
+pre-push amend with a stale-check that fails fast with instructions.
+Patches drop from 80k → 2k total lines.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+---
+ .githooks/pre-push | 42 +++++++++++++++++++++++++++++++++---------
+ Makefile           |  2 +-
+ 2 files changed, 34 insertions(+), 10 deletions(-)
+
+diff --git a/.githooks/pre-push b/.githooks/pre-push
+index b968f021..099eb875 100755
+--- a/.githooks/pre-push
++++ b/.githooks/pre-push
+@@ -1,7 +1,6 @@
+ #!/usr/bin/env bash
+-# Pre-push hook: on anvil branch, regenerate patches/ and fold into HEAD,
+-# rebuild+install locally, then kick off a remote rebuild on Anvil so both
+-# machines converge on the same binary.
++# Pre-push hook: on anvil branch, validate patches/ is current, rebuild+install
++# locally, then kick off a remote rebuild on Anvil so both machines converge.
+ # Installed via: git config core.hooksPath .githooks (run by make install)
+ 
+ set -euo pipefail
+@@ -9,12 +8,37 @@ set -euo pipefail
+ BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null) || exit 0
+ [ "$BRANCH" = "anvil" ] || exit 0
+ 
+-make patches --quiet
+-
+-if ! git diff --quiet patches/; then
+-    git add patches/
+-    git commit --amend --no-edit --quiet
+-    echo "pre-push: patches/ refreshed and folded into HEAD"
++# --- Validate patches/ is up-to-date ---
++TMPDIR=$(mktemp -d)
++trap 'rm -rf "$TMPDIR"' EXIT
++git format-patch upstream/main..HEAD --output-directory "$TMPDIR" -- . ':!patches/' >/dev/null 2>&1
++# Compare patch count and diff bodies, ignoring "From <sha>" headers which
++# change on every amend.
++EXPECTED=$(ls "$TMPDIR"/*.patch 2>/dev/null | wc -l | tr -d ' ')
++ACTUAL=$(ls patches/*.patch 2>/dev/null | wc -l | tr -d ' ')
++if [ "$EXPECTED" != "$ACTUAL" ]; then
++    rm -rf "$TMPDIR"
++    echo ""
++    echo "pre-push: patches/ has $ACTUAL patches but $EXPECTED expected. Run:"
++    echo "  make patches && git add patches/ && git commit --amend --no-edit"
++    echo "Then push again."
++    exit 1
++fi
++# Compare diff bodies (skip From line which contains the commit SHA)
++STALE=0
++for f in "$TMPDIR"/*.patch; do
++    base=$(basename "$f")
++    if [ ! -f "patches/$base" ] || ! diff <(tail -n +2 "patches/$base") <(tail -n +2 "$f") >/dev/null 2>&1; then
++        STALE=1
++        break
++    fi
++done
++if [ "$STALE" = "1" ]; then
++    echo ""
++    echo "pre-push: patches/ is stale. Run:"
++    echo "  make patches && git add patches/ && git commit --amend --no-edit"
++    echo "Then push again."
++    exit 1
+ fi
+ 
+ # --- Build and install to ~/go/bin ---
+diff --git a/Makefile b/Makefile
+index 86bd54f9..0837415c 100644
+--- a/Makefile
++++ b/Makefile
+@@ -211,7 +211,7 @@ clean:
+ patches:
+ 	@echo "Exporting patches from anvil -> upstream/main divergence..."
+ 	@rm -f patches/*.patch
+-	@git format-patch upstream/main..HEAD --output-directory patches/
++	@git format-patch upstream/main..HEAD --output-directory patches/ -- . ':!patches/'
+ 	@echo "Patches written to patches/:"
+ 	@ls patches/*.patch 2>/dev/null | sed 's|patches/||'
+ 
+-- 
+2.50.1 (Apple Git-155)
+

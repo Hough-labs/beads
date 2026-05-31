@@ -1,0 +1,110 @@
+From d73c75df0c8a090a90a927708c825013e00b1897 Mon Sep 17 00:00:00 2001
+From: Hunter B Hough <git@hough.ink>
+Date: Mon, 13 Apr 2026 16:04:38 -0400
+Subject: [PATCH 16/21] fix(server-mode): config.yaml dolt.mode overrides stale
+ metadata.json
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Three bugs caused server-mode projects to silently fall back to embedded
+mode, breaking bd create/ready/list with "issue_prefix config is missing":
+
+1. bd init --force always wrote dolt_mode=embedded to metadata.json on
+   macOS because isEmbeddedMode() only checked --server flag, env vars,
+   and Linux auto-detection — never config.yaml's dolt.mode setting.
+
+2. IsDoltServerMode() (called by PersistentPreRun and
+   loadServerModeFromConfig) only checked metadata.json and env vars,
+   ignoring config.yaml dolt.mode: "server". Every command used the
+   wrong mode when metadata.json was stale.
+
+3. issue_prefix lookup in transaction.go and helpers.go queried for
+   "issue_prefix" (underscore) but some databases had the key stored
+   as "issue-prefix" (hyphen) from bd config set. Now queries both
+   variants.
+
+Affected 6 projects: chassis, darkfactory, devbox, gauntlet, mantle,
+smelt — all had metadata.json dolt_mode=embedded while config.yaml
+said dolt.mode: "server".
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+---
+ cmd/bd/init.go                       |  4 +++-
+ cmd/bd/main.go                       | 10 ++++++++++
+ internal/storage/dolt/transaction.go |  2 +-
+ internal/storage/issueops/helpers.go |  2 +-
+ 4 files changed, 15 insertions(+), 3 deletions(-)
+
+diff --git a/cmd/bd/init.go b/cmd/bd/init.go
+index 8ca918c0..64a2cec1 100644
+--- a/cmd/bd/init.go
++++ b/cmd/bd/init.go
+@@ -778,7 +778,9 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
+ 				}
+ 
+ 				// Persist the connection mode matching this build.
+-				if isEmbeddedMode() {
++				// Also check config.yaml dolt.mode to avoid overwriting
++				// server intent with embedded when --server flag is absent.
++				if isEmbeddedMode() && !strings.EqualFold(config.GetString("dolt.mode"), "server") {
+ 					cfg.DoltMode = configfile.DoltModeEmbedded
+ 				} else {
+ 					cfg.DoltMode = configfile.DoltModeServer
+diff --git a/cmd/bd/main.go b/cmd/bd/main.go
+index 97e33b3b..7a5c22b1 100644
+--- a/cmd/bd/main.go
++++ b/cmd/bd/main.go
+@@ -230,6 +230,12 @@ func loadServerModeFromBeadsDir(beadsDir string) {
+ 	if !sm && doltserver.IsSharedServerMode() {
+ 		sm = true
+ 	}
++	// config.yaml dolt.mode override for stale metadata.json dolt_mode=embedded.
++	// When a user sets dolt.mode: "server" in config.yaml, honor it even if
++	// metadata.json was not updated (e.g. bd init --force without --server).
++	if !sm && strings.EqualFold(config.GetYamlConfig("dolt.mode"), "server") {
++		sm = true
++	}
+ 	serverMode = sm
+ 	if cmdCtx != nil {
+ 		cmdCtx.ServerMode = sm
+@@ -829,6 +835,10 @@ var rootCmd = &cobra.Command{
+ 			if !doltCfg.ServerMode && doltserver.IsSharedServerMode() {
+ 				doltCfg.ServerMode = true
+ 			}
++			// config.yaml dolt.mode override for stale metadata.json.
++			if !doltCfg.ServerMode && strings.EqualFold(config.GetYamlConfig("dolt.mode"), "server") {
++				doltCfg.ServerMode = true
++			}
+ 			serverMode = doltCfg.ServerMode
+ 			if cmdCtx != nil {
+ 				cmdCtx.ServerMode = doltCfg.ServerMode
+diff --git a/internal/storage/dolt/transaction.go b/internal/storage/dolt/transaction.go
+index 8cc18439..39a69e52 100644
+--- a/internal/storage/dolt/transaction.go
++++ b/internal/storage/dolt/transaction.go
+@@ -144,7 +144,7 @@ func (t *doltTransaction) CreateIssue(ctx context.Context, issue *types.Issue, a
+ 	// Generate ID if not provided
+ 	if issue.ID == "" {
+ 		var configPrefix string
+-		err := t.tx.QueryRowContext(ctx, "SELECT value FROM config WHERE `key` = ?", "issue_prefix").Scan(&configPrefix)
++		err := t.tx.QueryRowContext(ctx, "SELECT value FROM config WHERE `key` IN ('issue_prefix', 'issue-prefix') LIMIT 1").Scan(&configPrefix)
+ 		if err == sql.ErrNoRows || configPrefix == "" {
+ 			return fmt.Errorf("%w: issue_prefix config is missing", storage.ErrNotInitialized)
+ 		} else if err != nil {
+diff --git a/internal/storage/issueops/helpers.go b/internal/storage/issueops/helpers.go
+index 599becde..2bc67aa3 100644
+--- a/internal/storage/issueops/helpers.go
++++ b/internal/storage/issueops/helpers.go
+@@ -499,7 +499,7 @@ func IsDoltNothingToCommit(err error) bool {
+ // ReadConfigPrefix reads and normalizes issue_prefix from the config table.
+ func ReadConfigPrefix(ctx context.Context, tx *sql.Tx) (string, error) {
+ 	var configPrefix string
+-	err := tx.QueryRowContext(ctx, "SELECT value FROM config WHERE `key` = ?", "issue_prefix").Scan(&configPrefix)
++	err := tx.QueryRowContext(ctx, "SELECT value FROM config WHERE `key` IN ('issue_prefix', 'issue-prefix') LIMIT 1").Scan(&configPrefix)
+ 	if err == sql.ErrNoRows || configPrefix == "" {
+ 		return "", fmt.Errorf("%w: issue_prefix config is missing (run 'bd init --prefix <prefix>' first)", storage.ErrNotInitialized)
+ 	} else if err != nil {
+-- 
+2.50.1 (Apple Git-155)
+

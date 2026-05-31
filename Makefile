@@ -162,16 +162,11 @@ else
 	@rm -f $(INSTALL_DIR)/beads
 	@ln -sf bd $(INSTALL_DIR)/beads
 	@echo "Created 'beads' alias -> bd"
-	@# Clean stale copies from previous install locations (including mise Go paths)
+	@# Sweep stale binaries from the upstream default install location.
+	@# -e || -L catches dangling symlinks too (e.g. beads -> bd after bd was removed).
 	@for stale in $(HOME)/.local/bin/bd $(HOME)/.local/bin/beads; do \
-		if [ -f "$$stale" ] && [ "$$stale" != "$(INSTALL_DIR)/bd" ] && [ "$$stale" != "$(INSTALL_DIR)/beads" ]; then \
+		if { [ -e "$$stale" ] || [ -L "$$stale" ]; } && [ "$$stale" != "$(INSTALL_DIR)/bd" ] && [ "$$stale" != "$(INSTALL_DIR)/beads" ]; then \
 			echo "Removing stale $$stale"; \
-			rm -f "$$stale"; \
-		fi; \
-	done
-	@for stale in $(HOME)/.local/share/mise/installs/go/*/bin/bd; do \
-		if [ -f "$$stale" ] || [ -L "$$stale" ]; then \
-			echo "Removing stale mise binary $$stale"; \
 			rm -f "$$stale"; \
 		fi; \
 	done
@@ -227,7 +222,7 @@ clean-test-tmp:
 patches:
 	@echo "Exporting patches from anvil -> upstream/main divergence..."
 	@rm -f patches/*.patch
-	@git format-patch upstream/main..HEAD --output-directory patches/
+	@git format-patch upstream/main..HEAD --output-directory patches/ -- . ':!patches/'
 	@echo "Patches written to patches/:"
 	@ls patches/*.patch 2>/dev/null | sed 's|patches/||'
 

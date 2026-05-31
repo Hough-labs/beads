@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Pre-push hook: on anvil branch, regenerate patches/ and fold into HEAD.
-# Ensures patches/ always reflects the current divergence before pushing.
+# Pre-push hook: on anvil branch, validate patches/ is current, rebuild+install
+# locally, then kick off a remote rebuild on Anvil so both machines converge.
 # Installed via: git config core.hooksPath .githooks (run by make install)
 
 set -euo pipefail
@@ -8,14 +8,80 @@ set -euo pipefail
 BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null) || exit 0
 [ "$BRANCH" = "anvil" ] || exit 0
 
-make patches --quiet
-
-if ! git diff --quiet patches/; then
-    git add patches/
-    git commit --amend --no-edit --quiet
-    echo "pre-push: patches/ refreshed and folded into HEAD"
+# --- Validate patches/ is up-to-date ---
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
+git format-patch upstream/main..HEAD --output-directory "$TMPDIR" -- . ':!patches/' >/dev/null 2>&1
+# Compare patch count and diff bodies, ignoring "From <sha>" headers which
+# change on every amend.
+EXPECTED=$(ls "$TMPDIR"/*.patch 2>/dev/null | wc -l | tr -d ' ')
+ACTUAL=$(ls patches/*.patch 2>/dev/null | wc -l | tr -d ' ')
+if [ "$EXPECTED" != "$ACTUAL" ]; then
+    rm -rf "$TMPDIR"
+    echo ""
+    echo "pre-push: patches/ has $ACTUAL patches but $EXPECTED expected. Run:"
+    echo "  make patches && git add patches/ && git commit --amend --no-edit"
+    echo "Then push again."
+    exit 1
+fi
+# Compare diff bodies (skip From line which contains the commit SHA)
+STALE=0
+for f in "$TMPDIR"/*.patch; do
+    base=$(basename "$f")
+    if [ ! -f "patches/$base" ] || ! diff <(tail -n +2 "patches/$base") <(tail -n +2 "$f") >/dev/null 2>&1; then
+        STALE=1
+        break
+    fi
+done
+if [ "$STALE" = "1" ]; then
+    echo ""
+    echo "pre-push: patches/ is stale. Run:"
+    echo "  make patches && git add patches/ && git commit --amend --no-edit"
+    echo "Then push again."
+    exit 1
 fi
 
 # --- Build and install to ~/go/bin ---
 echo "beads: rebuilding and installing to ~/go/bin..."
 make install-force
+
+# --- Sync to Anvil ---
+# Only trigger from Hammer (Darwin). Background job polls origin/anvil until
+# it sees our pushed SHA, then SSHes anvil to pull+build. Failure is logged,
+# not fatal — the local push still succeeds.
+if [ "$(uname -s)" = "Darwin" ]; then
+    EXPECTED_SHA=$(git rev-parse HEAD)
+    LOG="$HOME/.cache/sync-anvil.log"
+    mkdir -p "$(dirname "$LOG")"
+    (
+        exec >>"$LOG" 2>&1
+        echo "[$(date '+%F %T')] beads sync-anvil: waiting for origin/anvil to reach $EXPECTED_SHA"
+        # Remote script: pull, rebuild, install. Piped to bash -s because anvil's
+        # default login shell is fish, which can't parse POSIX/bash scripts.
+        REMOTE_CMD='
+set -e
+cd ~/code/forks/gastownhall/beads
+git fetch origin anvil --quiet
+git reset --hard origin/anvil --quiet
+make install-force
+'
+        for _ in $(seq 1 30); do
+            REMOTE_SHA=$(git ls-remote --quiet origin refs/heads/anvil 2>/dev/null | awk '{print $1}')
+            if [ "$REMOTE_SHA" = "$EXPECTED_SHA" ]; then
+                echo "[$(date '+%F %T')] beads sync-anvil: origin reached $EXPECTED_SHA — triggering remote build"
+                printf '%s\n' "$REMOTE_CMD" | ssh -o BatchMode=yes anvil bash -s
+                RC=$?
+                if [ "$RC" -eq 0 ]; then
+                    echo "[$(date '+%F %T')] beads sync-anvil: done"
+                else
+                    echo "[$(date '+%F %T')] beads sync-anvil: remote deploy failed (rc=$RC)"
+                fi
+                exit "$RC"
+            fi
+            sleep 2
+        done
+        echo "[$(date '+%F %T')] beads sync-anvil: timeout — origin/anvil did not advance. Run manually on anvil: cd ~/code/forks/gastownhall/beads && git pull && make install-force"
+    ) </dev/null &
+    disown
+    echo "pre-push: anvil sync backgrounded (tail $LOG for progress)"
+fi

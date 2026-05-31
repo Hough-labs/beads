@@ -1,0 +1,38 @@
+From 6b8847385e1fe0c06ad21a48255997f6436f37f7 Mon Sep 17 00:00:00 2001
+From: Hunter B Hough <git@hough.ink>
+Date: Mon, 13 Apr 2026 16:18:57 -0400
+Subject: [PATCH 17/21] fix(plugin): stop telling agents to run bd init on
+ database errors
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The troubleshooting table told agents to run `bd init <prefix>` when
+they hit "database not found". Without --server flag, this overwrites
+metadata.json dolt_mode to "embedded", breaking all server-mode repos.
+
+This was the root cause of repeated server-mode breakage across
+projects — agents would hit a transient error, follow the SKILL.md
+advice, and silently switch the entire project to embedded mode.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+---
+ claude-plugin/skills/beads/SKILL.md | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/claude-plugin/skills/beads/SKILL.md b/claude-plugin/skills/beads/SKILL.md
+index f41fe0b0..54b83295 100644
+--- a/claude-plugin/skills/beads/SKILL.md
++++ b/claude-plugin/skills/beads/SKILL.md
+@@ -63,7 +63,7 @@ Append `--json` to any command for structured output. Use `bd show <id> --long`
+ 
+ | Error | Fix |
+ |-------|-----|
+-| `database not found` | `bd init <prefix>` in project root |
++| `database not found` | Check `.beads/metadata.json` exists and `dolt_mode` matches `config.yaml`. Do NOT run `bd init` — it overwrites server config. |
+ | `not in a git repository` | `git init` first |
+ | `disk I/O error (522)` | Move `.beads/` off cloud-synced filesystem |
+ | Status updates lag | Use server mode: `bd dolt start` |
+-- 
+2.50.1 (Apple Git-155)
+

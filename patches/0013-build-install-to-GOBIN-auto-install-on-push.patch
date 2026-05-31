@@ -1,0 +1,63 @@
+From c6e55f6ccd3ef01d6a4cc30062acf6a3fcaf06d7 Mon Sep 17 00:00:00 2001
+From: Hunter B Hough <git@hough.ink>
+Date: Fri, 10 Apr 2026 12:19:08 -0400
+Subject: [PATCH 13/21] build: install to GOBIN, auto-install on push
+
+INSTALL_DIR now uses go env GOBIN with ~/go/bin fallback.
+Pre-push hook runs make install-force after patches.
+Cleans stale copies from ~/.local/bin.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+---
+ .githooks/pre-push |  4 ++++
+ Makefile           | 14 ++++++++++++--
+ 2 files changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/.githooks/pre-push b/.githooks/pre-push
+index aaae6088..1806f90e 100755
+--- a/.githooks/pre-push
++++ b/.githooks/pre-push
+@@ -15,3 +15,7 @@ if ! git diff --quiet patches/; then
+     git commit --amend --no-edit --quiet
+     echo "pre-push: patches/ refreshed and folded into HEAD"
+ fi
++
++# --- Build and install to mise GOBIN ---
++echo "beads: rebuilding and installing to mise..."
++make install-force
+diff --git a/Makefile b/Makefile
+index e22806e2..426f8c44 100644
+--- a/Makefile
++++ b/Makefile
+@@ -19,7 +19,10 @@ GIT_BUILD := $(shell git rev-parse --short HEAD)
+ ifeq ($(OS),Windows_NT)
+ INSTALL_DIR := $(USERPROFILE)/.local/bin
+ else
+-INSTALL_DIR := $(HOME)/.local/bin
++INSTALL_DIR := $(shell go env GOBIN)
++ifeq ($(INSTALL_DIR),)
++INSTALL_DIR := $(HOME)/go/bin
++endif
+ endif
+ 
+ # Dolt backend requires CGO for embedded database support.
+@@ -159,8 +162,15 @@ else
+ 	@cp $(BUILD_DIR)/bd $(INSTALL_DIR)/bd
+ 	@echo "Installed bd to $(INSTALL_DIR)/bd"
+ 	@rm -f $(INSTALL_DIR)/beads
+-	@ln -s bd $(INSTALL_DIR)/beads
++	@ln -sf bd $(INSTALL_DIR)/beads
+ 	@echo "Created 'beads' alias -> bd"
++	@# Clean stale copies from previous install location
++	@for stale in $(HOME)/.local/bin/bd $(HOME)/.local/bin/beads; do \
++		if [ -f "$$stale" ] && [ "$$stale" != "$(INSTALL_DIR)/bd" ] && [ "$$stale" != "$(INSTALL_DIR)/beads" ]; then \
++			echo "Removing stale $$stale"; \
++			rm -f "$$stale"; \
++		fi; \
++	done
+ endif
+ 	@git config core.hooksPath .githooks 2>/dev/null && echo "Configured git hooks (.githooks/)" || true
+ 
+-- 
+2.50.1 (Apple Git-155)
+
