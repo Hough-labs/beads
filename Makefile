@@ -9,7 +9,7 @@ SHELL := $(subst cmd,bin,$(subst git.exe,bash.exe,$(GIT_BASH)))
 endif
 endif
 
-.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean clean-test-tmp install install-force help check-up-to-date fmt fmt-check patches upgrade update-hooks update-hooks-dry-run
+.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean clean-test-tmp install install-force help check-up-to-date fmt fmt-check patches upgrade update-hooks update-hooks-dry-run commit-hooks commit-hooks-push commit-hooks-dry-run
 
 # Default target
 all: build
@@ -247,6 +247,20 @@ update-hooks:
 update-hooks-dry-run:
 	@bash scripts/update-beads-hooks.sh --dry-run
 
+# Commit the refreshed .beads/hooks/ shims left dirty by `make update-hooks`.
+# Makes one path-scoped commit per repo (only .beads/hooks/, nothing else).
+#   make commit-hooks            - Commit, no push
+#   make commit-hooks-push       - Commit, then git push each repo
+#   make commit-hooks-dry-run    - Show what would be committed, change nothing
+commit-hooks:
+	@bash scripts/commit-beads-hooks.sh
+
+commit-hooks-push:
+	@bash scripts/commit-beads-hooks.sh --push
+
+commit-hooks-dry-run:
+	@bash scripts/commit-beads-hooks.sh --dry-run
+
 # Show help
 help:
 	@echo "Beads Makefile targets:"
@@ -271,4 +285,7 @@ help:
 	@echo "  make upgrade      - Fetch upstream, reset, replay patches/"
 	@echo "  make update-hooks - Refresh bd hooks in every repo with a .beads/ dir under ~/.* and ~/code/*"
 	@echo "  make update-hooks-dry-run - Show what update-hooks would do, change nothing"
+	@echo "  make commit-hooks - Commit refreshed .beads/hooks/ shims (path-scoped, no push)"
+	@echo "  make commit-hooks-push - Commit refreshed shims, then git push each repo"
+	@echo "  make commit-hooks-dry-run - Show what commit-hooks would commit, change nothing"
 	@echo "  make help         - Show this help message"

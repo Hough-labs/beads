@@ -1,7 +1,7 @@
 From 60ab97eb7428662d109eec73d035e7e82b635839 Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Sun, 31 May 2026 14:59:09 -0400
-Subject: [PATCH 12/17] build: rebase-based upgrade flow with mise cleanup and
+Subject: [PATCH 12/18] build: rebase-based upgrade flow with mise cleanup and
  patch-system fixes
 
 Squashed upgrade-tooling refinements:

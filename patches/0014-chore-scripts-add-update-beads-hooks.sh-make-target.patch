@@ -1,7 +1,7 @@
 From b1dafeea92d0672caae7e7088fa55d2b08c8605a Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <hunter.hough@gmail.com>
 Date: Sun, 17 May 2026 14:55:18 -0400
-Subject: [PATCH 14/17] chore(scripts): add update-beads-hooks.sh + make target
+Subject: [PATCH 14/18] chore(scripts): add update-beads-hooks.sh + make target
 
 Walks ~/.* and ~/code/* for every .beads/ directory and runs
 `bd hooks install --beads --force` in its enclosing repo. Skips worktrees

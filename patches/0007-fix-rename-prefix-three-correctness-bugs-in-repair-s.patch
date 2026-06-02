@@ -1,7 +1,7 @@
 From 662dcdd19173a91b9742b5928865a3dc0b2eea6b Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Wed, 8 Apr 2026 10:31:55 -0400
-Subject: [PATCH 07/17] fix(rename-prefix): three correctness bugs in repair +
+Subject: [PATCH 07/18] fix(rename-prefix): three correctness bugs in repair +
  simple rename
 
 Three independent bugs in `bd rename-prefix` could corrupt a database

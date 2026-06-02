@@ -1,7 +1,7 @@
 From 413321e70ec5ccc8e04e82e4c37e7dffab6159d7 Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Sun, 31 May 2026 14:59:08 -0400
-Subject: [PATCH 06/17] chore: gitignore mantle-compiled config dirs and
+Subject: [PATCH 06/18] chore: gitignore mantle-compiled config dirs and
  handoffs
 
 Squashed three gitignore additions: mantle-compiled agent config dirs

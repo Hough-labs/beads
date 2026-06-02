@@ -1,7 +1,7 @@
 From 157a20784b1c91bd5ae00be7bb4e4a7f6e27a622 Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Mon, 13 Apr 2026 16:18:57 -0400
-Subject: [PATCH 11/17] fix(plugin): stop telling agents to run bd init on
+Subject: [PATCH 11/18] fix(plugin): stop telling agents to run bd init on
  database errors
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8

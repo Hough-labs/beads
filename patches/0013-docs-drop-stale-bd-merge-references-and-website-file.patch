@@ -1,7 +1,7 @@
 From 08b1d3c1daa6498d48c9e73836e5afe3458a2644 Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Sun, 31 May 2026 14:59:09 -0400
-Subject: [PATCH 13/17] docs: drop stale bd merge references and website file
+Subject: [PATCH 13/18] docs: drop stale bd merge references and website file
  removed upstream
 
 Squashed: drop stale bd merge references (Phase 3 removal) across docs,

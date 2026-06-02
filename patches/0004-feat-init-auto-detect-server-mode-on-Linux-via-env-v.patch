@@ -1,7 +1,7 @@
 From 897ae366365ba82929b259006a6b6a73ed54df2e Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Sat, 4 Apr 2026 05:58:24 -0400
-Subject: [PATCH 04/17] feat(init): auto-detect server mode on Linux via env
+Subject: [PATCH 04/18] feat(init): auto-detect server mode on Linux via env
  var or k8s probe
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8

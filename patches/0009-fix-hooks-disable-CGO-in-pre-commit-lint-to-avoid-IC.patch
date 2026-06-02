@@ -1,7 +1,7 @@
 From e2f410133b9e9a41e25d7052b570d48851005628 Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Mon, 13 Apr 2026 16:04:23 -0400
-Subject: [PATCH 09/17] fix(hooks): disable CGO in pre-commit lint to avoid ICU
+Subject: [PATCH 09/18] fix(hooks): disable CGO in pre-commit lint to avoid ICU
  header errors
 
 golangci-lint's typecheck fails on macOS when icu4c headers aren't

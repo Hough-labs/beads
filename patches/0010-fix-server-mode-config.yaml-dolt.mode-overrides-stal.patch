@@ -1,7 +1,7 @@
 From 228fe850362428a41cfbee3a180fcfcc52359dcf Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Mon, 13 Apr 2026 16:04:38 -0400
-Subject: [PATCH 10/17] fix(server-mode): config.yaml dolt.mode overrides stale
+Subject: [PATCH 10/18] fix(server-mode): config.yaml dolt.mode overrides stale
  metadata.json
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8

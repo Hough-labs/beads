@@ -1,0 +1,290 @@
+From 8da6af5fcd00aa13ee2db25bb78c6c2aa3f0545e Mon Sep 17 00:00:00 2001
+From: Hunter B Hough <git@hough.ink>
+Date: Tue, 2 Jun 2026 12:17:29 -0400
+Subject: [PATCH 18/18] chore(scripts): add commit-beads-hooks.sh + make
+ targets
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Companion to update-beads-hooks.sh. After a bd binary upgrade,
+`make update-hooks` rewrites every repo's .beads/hooks/* shims (bumping the
+BEGIN/END BEADS INTEGRATION markers), leaving 100+ dirty working trees. This
+sweeps them: one path-scoped commit per repo touching ONLY .beads/hooks/.
+
+  make commit-hooks          - commit, no push
+  make commit-hooks-push     - commit, then git push each repo
+  make commit-hooks-dry-run  - show what would be committed
+
+Path-scoped partial commit (no `git add`) so unrelated staged changes stay
+staged and untracked/gitignored shims are never swept in. Skips worktrees,
+non-git dirs, generated agent-home trees (~/.claude-*, ~/.codex-*, ~/.pi-*,
+~/.config/goose/* — read-only persona skill copies wiped on rebuild), and
+repos with no tracked .beads/hooks/ changes.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ Makefile                      |  19 +++-
+ scripts/commit-beads-hooks.sh | 208 ++++++++++++++++++++++++++++++++++
+ 2 files changed, 226 insertions(+), 1 deletion(-)
+ create mode 100755 scripts/commit-beads-hooks.sh
+
+diff --git a/Makefile b/Makefile
+index 3c0eff7ed..3069e998b 100644
+--- a/Makefile
++++ b/Makefile
+@@ -9,7 +9,7 @@ SHELL := $(subst cmd,bin,$(subst git.exe,bash.exe,$(GIT_BASH)))
+ endif
+ endif
+ 
+-.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean install install-force help check-up-to-date fmt fmt-check patches upgrade update-hooks update-hooks-dry-run
++.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean install install-force help check-up-to-date fmt fmt-check patches upgrade update-hooks update-hooks-dry-run commit-hooks commit-hooks-push commit-hooks-dry-run
+ 
+ # Default target
+ all: build
+@@ -238,6 +238,20 @@ update-hooks:
+ update-hooks-dry-run:
+ 	@bash scripts/update-beads-hooks.sh --dry-run
+ 
++# Commit the refreshed .beads/hooks/ shims left dirty by `make update-hooks`.
++# Makes one path-scoped commit per repo (only .beads/hooks/, nothing else).
++#   make commit-hooks            - Commit, no push
++#   make commit-hooks-push       - Commit, then git push each repo
++#   make commit-hooks-dry-run    - Show what would be committed, change nothing
++commit-hooks:
++	@bash scripts/commit-beads-hooks.sh
++
++commit-hooks-push:
++	@bash scripts/commit-beads-hooks.sh --push
++
++commit-hooks-dry-run:
++	@bash scripts/commit-beads-hooks.sh --dry-run
++
+ # Show help
+ help:
+ 	@echo "Beads Makefile targets:"
+@@ -261,4 +275,7 @@ help:
+ 	@echo "  make upgrade      - Fetch upstream, reset, replay patches/"
+ 	@echo "  make update-hooks - Refresh bd hooks in every repo with a .beads/ dir under ~/.* and ~/code/*"
+ 	@echo "  make update-hooks-dry-run - Show what update-hooks would do, change nothing"
++	@echo "  make commit-hooks - Commit refreshed .beads/hooks/ shims (path-scoped, no push)"
++	@echo "  make commit-hooks-push - Commit refreshed shims, then git push each repo"
++	@echo "  make commit-hooks-dry-run - Show what commit-hooks would commit, change nothing"
+ 	@echo "  make help         - Show this help message"
+diff --git a/scripts/commit-beads-hooks.sh b/scripts/commit-beads-hooks.sh
+new file mode 100755
+index 000000000..769dae6ad
+--- /dev/null
++++ b/scripts/commit-beads-hooks.sh
+@@ -0,0 +1,208 @@
++#!/usr/bin/env bash
++# commit-beads-hooks.sh — commit refreshed bd hook shims in every repo where
++# `.beads/hooks/` has tracked changes.
++#
++# Companion to update-beads-hooks.sh. After a bd binary upgrade,
++# `make update-hooks` rewrites the per-repo `.beads/hooks/*` shims (bumping the
++# `BEGIN BEADS INTEGRATION vX.Y.Z` markers). Those shims are tracked in most
++# repos, so the refresh leaves ~100+ dirty working trees. This script walks the
++# same roots, and in every repo whose `.beads/hooks/` is dirty, makes a single
++# path-scoped commit covering ONLY `.beads/hooks/` — unrelated staged or
++# unstaged changes are left untouched.
++#
++# Skips:
++#   - directories that aren't inside a git repo
++#   - worktrees (they share core.hooksPath with the main repo)
++#   - generated agent-home trees (~/.claude-*, ~/.codex-*, ~/.pi-*,
++#     ~/.config/goose/*) — these hold read-only persona skill copies that are
++#     wiped on every `mill persona build`, so committing shim churn there is
++#     pointless (and their .git is often read-only)
++#   - repos with no *tracked* changes under .beads/hooks/ (untracked or
++#     gitignored shims are left alone — nothing to commit)
++#
++# Usage:
++#   scripts/commit-beads-hooks.sh            # commit, no push
++#   scripts/commit-beads-hooks.sh --push     # commit, then `git push`
++#   scripts/commit-beads-hooks.sh --dry-run  # show what would be committed
++#   scripts/commit-beads-hooks.sh --help
++
++set -euo pipefail
++
++DRY_RUN=false
++PUSH=false
++case "${1:-}" in
++    -n|--dry-run) DRY_RUN=true ;;
++    -p|--push)    PUSH=true ;;
++    -h|--help)
++        sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
++        exit 0
++        ;;
++    "") ;;
++    *)
++        printf 'unknown flag: %s\n' "$1" >&2
++        exit 2
++        ;;
++esac
++
++if [[ -t 1 ]]; then
++    RED=$'\e[31m' GREEN=$'\e[32m' YELLOW=$'\e[33m' DIM=$'\e[2m' BOLD=$'\e[1m' NC=$'\e[0m'
++else
++    RED='' GREEN='' YELLOW='' DIM='' BOLD='' NC=''
++fi
++
++# Commit message derives from the bd version currently on PATH, so the audit
++# trail records which bd produced the shims being committed.
++bd_version=""
++if command -v bd >/dev/null 2>&1; then
++    bd_version=$(bd --version 2>/dev/null | sed -n 's/^bd version \([^ ]*\).*/\1/p' | head -1 || true)
++fi
++ver_label=${bd_version:-unknown}
++COMMIT_MSG="chore(beads): refresh hook shims to v${ver_label}
++
++Regenerated by \`make update-hooks\` after upgrading the bd binary to
++v${ver_label}. Shims dispatch to \`bd hooks run\`; this commit only updates
++the BEGIN/END BEADS INTEGRATION markers under .beads/hooks/."
++
++printf '%sCommit message:%s %s(bd v%s)%s\n\n' "$BOLD" "$NC" "$DIM" "$ver_label" "$NC"
++
++shopt -s nullglob
++roots=()
++for d in "$HOME"/.[!.]*/ "$HOME"/code/*/; do
++    [[ -d "$d" ]] && roots+=("${d%/}")
++done
++
++if [[ ${#roots[@]} -eq 0 ]]; then
++    printf '%sno candidate roots under ~/.* or ~/code/*%s\n' "$YELLOW" "$NC" >&2
++    exit 0
++fi
++
++# Find every .beads/ directory under the roots, pruning large dependency trees.
++# (Same prune list as update-beads-hooks.sh.)
++candidates=()
++while IFS= read -r -d '' beads; do
++    candidates+=("$beads")
++done < <(
++    find "${roots[@]}" \
++        \( -name .git -o -name node_modules -o -name vendor -o -name target \
++           -o -name dist -o -name build -o -name out \
++           -o -name Library -o -name Caches -o -name .cache \
++           -o -name .npm -o -name .gem -o -name .cargo -o -name .rustup \
++           -o -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache \
++           -o -name .tox -o -name .terraform -o -name .gradle \
++           -o -name .next -o -name .nuxt \) \
++        -prune -o \
++        -type d -name .beads -print0 \
++        2>/dev/null
++)
++
++printf 'Found %s%d%s .beads candidate(s) under ~/.* and ~/code/*\n\n' \
++    "$BOLD" "${#candidates[@]}" "$NC"
++
++declare -a seen_repos=()
++already_seen() {
++    local needle=$1 item
++    for item in "${seen_repos[@]}"; do
++        [[ "$item" == "$needle" ]] && return 0
++    done
++    return 1
++}
++
++committed=0
++nochange=0
++skipped=0
++failed=0
++fails=()
++
++for beads in "${candidates[@]}"; do
++    repo=$(cd "$(dirname "$beads")" 2>/dev/null && pwd) || continue
++    label=${repo/#$HOME/~}
++
++    if already_seen "$repo"; then
++        continue
++    fi
++    seen_repos+=("$repo")
++
++    # Generated agent-home trees: read-only persona skill copies, wiped on the
++    # next `mill persona build`. Committing shim churn there is meaningless.
++    case "$repo" in
++        "$HOME"/.claude-*|"$HOME"/.codex-*|"$HOME"/.pi-*|"$HOME"/.config/goose/*)
++            printf '  %sskip%s %-60s %s(generated agent tree)%s\n' \
++                "$DIM" "$NC" "$label" "$DIM" "$NC"
++            skipped=$((skipped + 1))
++            continue
++            ;;
++    esac
++
++    if ! git_dir=$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null); then
++        printf '  %sskip%s %-60s %s(not a git repo)%s\n' \
++            "$DIM" "$NC" "$label" "$DIM" "$NC"
++        skipped=$((skipped + 1))
++        continue
++    fi
++
++    common=$(git -C "$repo" rev-parse --git-common-dir 2>/dev/null || true)
++    common_abs=""
++    if [[ -n "$common" ]]; then
++        if [[ "$common" = /* ]]; then
++            common_abs=$(cd "$common" 2>/dev/null && pwd || true)
++        else
++            common_abs=$(cd "$repo" && cd "$common" 2>/dev/null && pwd || true)
++        fi
++    fi
++    if [[ -n "$common_abs" && "$git_dir" != "$common_abs" ]]; then
++        printf '  %sskip%s %-60s %s(worktree)%s\n' \
++            "$DIM" "$NC" "$label" "$DIM" "$NC"
++        skipped=$((skipped + 1))
++        continue
++    fi
++
++    # Only act on TRACKED modifications under .beads/hooks/. Untracked or
++    # gitignored shims (e.g. repos that .gitignore .beads/hooks) produce no
++    # diff here and are left alone — there's nothing to commit.
++    tracked=$(git -C "$repo" diff --name-only -- .beads/hooks 2>/dev/null || true)
++    if [[ -z "$tracked" ]]; then
++        nochange=$((nochange + 1))
++        continue
++    fi
++
++    if $DRY_RUN; then
++        n=$(printf '%s\n' "$tracked" | grep -c . || true)
++        printf '  %swould commit%s %-50s %s(%d file(s))%s\n' \
++            "$YELLOW" "$NC" "$label" "$DIM" "$n" "$NC"
++        committed=$((committed + 1))
++        continue
++    fi
++
++    # Path-scoped partial commit of ONLY tracked .beads/hooks/ changes. No
++    # `git add`, so unrelated staged changes stay staged and untracked/ignored
++    # files can never be swept in.
++    if out=$(git -C "$repo" commit -q -m "$COMMIT_MSG" -- .beads/hooks 2>&1); then
++        if $PUSH; then
++            if push_out=$(git -C "$repo" push 2>&1); then
++                printf '  %sok+push%s %s\n' "$GREEN" "$NC" "$label"
++            else
++                printf '  %scommitted, push FAILED%s %s\n' "$YELLOW" "$NC" "$label"
++                fails+=("$label (push)"$'\n'"$push_out")
++                failed=$((failed + 1))
++            fi
++        else
++            printf '  %sok%s   %s\n' "$GREEN" "$NC" "$label"
++        fi
++        committed=$((committed + 1))
++    else
++        printf '  %sfail%s %s\n' "$RED" "$NC" "$label"
++        fails+=("$label"$'\n'"$out")
++        failed=$((failed + 1))
++    fi
++done
++
++printf '\n%sSummary:%s committed=%d no-change=%d skipped=%d failed=%d\n' \
++    "$BOLD" "$NC" "$committed" "$nochange" "$skipped" "$failed"
++
++if [[ "$failed" -gt 0 ]]; then
++    printf '\n%sFailures:%s\n' "$RED" "$NC"
++    for f in "${fails[@]}"; do
++        printf -- '----\n%s\n' "$f"
++    done
++    exit 1
++fi
+-- 
+2.50.1 (Apple Git-155)
+

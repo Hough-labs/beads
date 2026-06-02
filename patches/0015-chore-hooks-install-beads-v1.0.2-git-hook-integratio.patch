@@ -1,7 +1,7 @@
 From b9b9ff1d619ae0fd7ce043bca8996e63a871683d Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Mon, 18 May 2026 16:22:42 -0400
-Subject: [PATCH 15/17] chore(hooks): install beads v1.0.2 git hook integration
+Subject: [PATCH 15/18] chore(hooks): install beads v1.0.2 git hook integration
 
 Adds the bd-managed hook block to pre-commit and pre-push (with BD_GIT_HOOK
 guard, 300s default timeout, exit-3 = uninitialized-db handling), and adds
