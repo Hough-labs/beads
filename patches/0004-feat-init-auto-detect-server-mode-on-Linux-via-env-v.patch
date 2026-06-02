@@ -1,7 +1,7 @@
-From 897ae366365ba82929b259006a6b6a73ed54df2e Mon Sep 17 00:00:00 2001
+From bf0b6a44c6c62c91ba35a8f118a66567d1c31593 Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Sat, 4 Apr 2026 05:58:24 -0400
-Subject: [PATCH 04/18] feat(init): auto-detect server mode on Linux via env
+Subject: [PATCH 04/19] feat(init): auto-detect server mode on Linux via env
  var or k8s probe
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -22,18 +22,19 @@ plus full unit test coverage including a real TCP listener probe.
 
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 ---
- cmd/bd/init.go                   |  18 +++++
+ cmd/bd/init.go                   |  24 +++++-
+ cmd/bd/req.go                    |   2 +-
  cmd/bd/server_autodetect.go      |  64 +++++++++++++++
  cmd/bd/server_autodetect_test.go | 132 +++++++++++++++++++++++++++++++
- 3 files changed, 214 insertions(+)
+ 4 files changed, 218 insertions(+), 4 deletions(-)
  create mode 100644 cmd/bd/server_autodetect.go
  create mode 100644 cmd/bd/server_autodetect_test.go
 
 diff --git a/cmd/bd/init.go b/cmd/bd/init.go
-index f86cee7f0..863ec04eb 100644
+index 163ded468..ace418961 100644
 --- a/cmd/bd/init.go
 +++ b/cmd/bd/init.go
-@@ -163,6 +163,24 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
+@@ -259,6 +259,24 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
  			initServerMode = true
  		}
  
@@ -55,9 +56,49 @@ index f86cee7f0..863ec04eb 100644
 +			}
 +		}
 +
- 		// Set serverMode so isEmbeddedMode() returns the correct value.
+ 		// Set serverMode so !usesSQLServer() returns the correct value.
  		// Both the global and cmdCtx must be set because PersistentPreRun
  		// creates a fresh cmdCtx (with ServerMode=false) before Run executes.
+@@ -622,7 +640,7 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
+ 			gitignorePath := filepath.Join(beadsDir, ".gitignore")
+ 			check := doctor.CheckGitignore(cwd)
+ 			if check.Status != "ok" {
+-				if err := os.WriteFile(gitignorePath, []byte(doctor.GitignoreTemplate), 0600); err != nil {
++				if err := os.WriteFile(gitignorePath, []byte(doctor.GitignoreTemplate), 0o600); err != nil {
+ 					fmt.Fprintf(os.Stderr, "Warning: failed to create/update .gitignore: %v\n", err)
+ 					// Non-fatal - continue anyway
+ 				}
+@@ -647,7 +665,7 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
+ 			interactionsPath := filepath.Join(beadsDir, "interactions.jsonl")
+ 			if _, err := os.Stat(interactionsPath); os.IsNotExist(err) {
+ 				// nolint:gosec // G306: JSONL file needs to be readable by other tools
+-				if err := os.WriteFile(interactionsPath, []byte{}, 0644); err != nil {
++				if err := os.WriteFile(interactionsPath, []byte{}, 0o644); err != nil {
+ 					fmt.Fprintf(os.Stderr, "Warning: failed to create interactions.jsonl: %v\n", err)
+ 					// Non-fatal - continue anyway
+ 				}
+@@ -1692,7 +1710,7 @@ func migrateOldDatabases(targetPath string, quiet bool) error {
+ 	}
+ 
+ 	// Create .beads directory if it doesn't exist
+-	if err := os.MkdirAll(targetDir, 0750); err != nil {
++	if err := os.MkdirAll(targetDir, 0o750); err != nil {
+ 		return fmt.Errorf("failed to create .beads directory: %w", err)
+ 	}
+ 
+diff --git a/cmd/bd/req.go b/cmd/bd/req.go
+index 6d13d5895..7199941af 100644
+--- a/cmd/bd/req.go
++++ b/cmd/bd/req.go
+@@ -110,7 +110,7 @@ func reqLinkRun(_ *cobra.Command, args []string) {
+ 		FatalErrorRespectJSON("updating %s: %v", result.ResolvedID, err)
+ 	}
+ 
+-	if isEmbeddedMode() && issueStore != nil {
++	if !usesSQLServer() && issueStore != nil {
+ 		if _, err := issueStore.CommitPending(ctx, actor); err != nil {
+ 			FatalErrorRespectJSON("failed to commit: %v", err)
+ 		}
 diff --git a/cmd/bd/server_autodetect.go b/cmd/bd/server_autodetect.go
 new file mode 100644
 index 000000000..09bc6cc45

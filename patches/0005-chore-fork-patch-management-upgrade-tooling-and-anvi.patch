@@ -1,7 +1,7 @@
-From 0f314690133f1ad5f7ca70838ad7ceec30a1d01c Mon Sep 17 00:00:00 2001
+From ccd033c8ac42a3c59672a695d8e17d897d885bb6 Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Sun, 31 May 2026 14:59:08 -0400
-Subject: [PATCH 05/18] chore: fork patch-management, upgrade tooling, and
+Subject: [PATCH 05/19] chore: fork patch-management, upgrade tooling, and
  anvil install guards
 
 Squashed fork-local build/deploy plumbing:
@@ -43,19 +43,19 @@ index 000000000..aaae6088a
 +    echo "pre-push: patches/ refreshed and folded into HEAD"
 +fi
 diff --git a/Makefile b/Makefile
-index 0384167bb..cf1769c80 100644
+index 795999b76..8caf59d71 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -9,7 +9,7 @@ SHELL := $(subst cmd,bin,$(subst git.exe,bash.exe,$(GIT_BASH)))
  endif
  endif
  
--.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean install install-force help check-up-to-date fmt fmt-check
-+.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean install install-force help check-up-to-date fmt fmt-check patches upgrade
+-.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean clean-test-tmp install install-force help check-up-to-date fmt fmt-check
++.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean clean-test-tmp install install-force help check-up-to-date fmt fmt-check patches upgrade
  
  # Default target
  all: build
-@@ -128,18 +128,21 @@ bench-quick:
+@@ -129,18 +129,21 @@ bench-quick:
  # Check that local branch is up to date with origin/main
  check-up-to-date:
  ifndef SKIP_UPDATE_CHECK
@@ -89,9 +89,9 @@ index 0384167bb..cf1769c80 100644
  endif
  
  # Install bd to ~/.local/bin (builds, signs on macOS, and copies)
-@@ -196,6 +199,24 @@ clean:
- 	rm -f internal/storage/dolt/bench-cpu-*.prof
- 	rm -f beads-perf-*.prof
+@@ -205,6 +208,24 @@ clean-test-tmp:
+ 	@echo "Sweeping orphaned cmd/bd test temp dirs from $${TMPDIR:-/tmp}..."
+ 	@./scripts/clean-test-tmp.sh
  
 +# Export current local commits (anvil..upstream/main divergence) to patches/.
 +# Run this after adding or editing a local patch commit.
@@ -114,10 +114,10 @@ index 0384167bb..cf1769c80 100644
  # Show help
  help:
  	@echo "Beads Makefile targets:"
-@@ -215,4 +236,6 @@ help:
- 	@echo "  make fmt-check    - Check Go formatting (for CI)"
+@@ -225,4 +246,6 @@ help:
  	@echo "  make check-docs   - Validate docs against CLI flags"
  	@echo "  make clean        - Remove build artifacts and profile files"
+ 	@echo "  make clean-test-tmp - Sweep orphaned cmd/bd test temp dirs from \$$TMPDIR"
 +	@echo "  make patches      - Export local commits to patches/ directory"
 +	@echo "  make upgrade      - Fetch upstream, reset, replay patches/"
  	@echo "  make help         - Show this help message"

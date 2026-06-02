@@ -1,7 +1,7 @@
-From 60ab97eb7428662d109eec73d035e7e82b635839 Mon Sep 17 00:00:00 2001
+From 56971bb3d0ba796e347cbb5112cd9867992ca171 Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Sun, 31 May 2026 14:59:09 -0400
-Subject: [PATCH 12/18] build: rebase-based upgrade flow with mise cleanup and
+Subject: [PATCH 12/19] build: rebase-based upgrade flow with mise cleanup and
  patch-system fixes
 
 Squashed upgrade-tooling refinements:
@@ -118,10 +118,10 @@ index c45d8f1e6..a82b31fb1 100755
 +    echo "pre-push: anvil sync backgrounded (tail $LOG for progress)"
 +fi
 diff --git a/Makefile b/Makefile
-index 3856e7de0..5b5fa0cb5 100644
+index 3aefbe0a0..389cc2e35 100644
 --- a/Makefile
 +++ b/Makefile
-@@ -161,19 +161,14 @@ else
+@@ -162,19 +162,14 @@ else
  	@rm -f $(INSTALL_DIR)/beads
  	@ln -sf bd $(INSTALL_DIR)/beads
  	@echo "Created 'beads' alias -> bd"
@@ -144,7 +144,7 @@ index 3856e7de0..5b5fa0cb5 100644
  endif
  	@git config core.hooksPath .githooks 2>/dev/null && echo "Configured git hooks (.githooks/)" || true
  
-@@ -218,7 +213,7 @@ clean:
+@@ -227,7 +222,7 @@ clean-test-tmp:
  patches:
  	@echo "Exporting patches from anvil -> upstream/main divergence..."
  	@rm -f patches/*.patch

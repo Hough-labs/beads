@@ -1,7 +1,7 @@
-From 8da6af5fcd00aa13ee2db25bb78c6c2aa3f0545e Mon Sep 17 00:00:00 2001
+From 43a2196f3681a7315381ee3e8143e87bdb26e9ca Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Tue, 2 Jun 2026 12:17:29 -0400
-Subject: [PATCH 18/18] chore(scripts): add commit-beads-hooks.sh + make
+Subject: [PATCH 18/19] chore(scripts): add commit-beads-hooks.sh + make
  targets
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -30,19 +30,19 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  create mode 100755 scripts/commit-beads-hooks.sh
 
 diff --git a/Makefile b/Makefile
-index 3c0eff7ed..3069e998b 100644
+index cd3b05eb7..6874871a0 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -9,7 +9,7 @@ SHELL := $(subst cmd,bin,$(subst git.exe,bash.exe,$(GIT_BASH)))
  endif
  endif
  
--.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean install install-force help check-up-to-date fmt fmt-check patches upgrade update-hooks update-hooks-dry-run
-+.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean install install-force help check-up-to-date fmt fmt-check patches upgrade update-hooks update-hooks-dry-run commit-hooks commit-hooks-push commit-hooks-dry-run
+-.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean clean-test-tmp install install-force help check-up-to-date fmt fmt-check patches upgrade update-hooks update-hooks-dry-run
++.PHONY: all build test test-icu-path test-full-cgo test-regression test-upgrade test-cross-version test-migration bench bench-quick clean clean-test-tmp install install-force help check-up-to-date fmt fmt-check patches upgrade update-hooks update-hooks-dry-run commit-hooks commit-hooks-push commit-hooks-dry-run
  
  # Default target
  all: build
-@@ -238,6 +238,20 @@ update-hooks:
+@@ -247,6 +247,20 @@ update-hooks:
  update-hooks-dry-run:
  	@bash scripts/update-beads-hooks.sh --dry-run
  
@@ -63,7 +63,7 @@ index 3c0eff7ed..3069e998b 100644
  # Show help
  help:
  	@echo "Beads Makefile targets:"
-@@ -261,4 +275,7 @@ help:
+@@ -271,4 +285,7 @@ help:
  	@echo "  make upgrade      - Fetch upstream, reset, replay patches/"
  	@echo "  make update-hooks - Refresh bd hooks in every repo with a .beads/ dir under ~/.* and ~/code/*"
  	@echo "  make update-hooks-dry-run - Show what update-hooks would do, change nothing"

@@ -1,7 +1,7 @@
-From e45e4e7033f0c1fa9725d58627b1d8d57174c75d Mon Sep 17 00:00:00 2001
+From c2147c0a8fc3cbbcd7a0ecb4c04a8371c23f6b5b Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Fri, 3 Apr 2026 19:19:07 -0400
-Subject: [PATCH 03/18] feat(cmd): add bd trace command for requirement status
+Subject: [PATCH 03/19] feat(cmd): add bd trace command for requirement status
  overview
 
 Groups beads by spec_id, reports count and status breakdown per

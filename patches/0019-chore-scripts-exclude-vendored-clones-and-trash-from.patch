@@ -1,0 +1,60 @@
+From debf42914aedf190c1dd500187ab17066e410342 Mon Sep 17 00:00:00 2001
+From: Hunter B Hough <git@hough.ink>
+Date: Tue, 2 Jun 2026 12:26:35 -0400
+Subject: [PATCH 19/19] chore(scripts): exclude vendored clones and trash from
+ commit-hooks sweep
+
+commit-beads-hooks.sh walks ~/.* and ~/code/*, which also catches
+~/code/_vendor/* (third-party upstream clones we can't push to) and
+~/.Trash/* (deleted repos). Committing shim churn into a vendored clone just
+pollutes its history and the push fails on permissions. Skip both, alongside
+the existing generated-agent-tree exclusion.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ scripts/commit-beads-hooks.sh | 15 +++++++++++++--
+ 1 file changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/scripts/commit-beads-hooks.sh b/scripts/commit-beads-hooks.sh
+index 769dae6ad..99bb4186a 100755
+--- a/scripts/commit-beads-hooks.sh
++++ b/scripts/commit-beads-hooks.sh
+@@ -17,6 +17,9 @@
+ #     ~/.config/goose/*) — these hold read-only persona skill copies that are
+ #     wiped on every `mill persona build`, so committing shim churn there is
+ #     pointless (and their .git is often read-only)
++#   - vendored upstream clones (~/code/_vendor/*) — third-party repos we have
++#     no push access to; a local shim commit just pollutes their history
++#   - the macOS trash (~/.Trash/*)
+ #   - repos with no *tracked* changes under .beads/hooks/ (untracked or
+ #     gitignored shims are left alone — nothing to commit)
+ #
+@@ -122,8 +125,10 @@ for beads in "${candidates[@]}"; do
+     fi
+     seen_repos+=("$repo")
+ 
+-    # Generated agent-home trees: read-only persona skill copies, wiped on the
+-    # next `mill persona build`. Committing shim churn there is meaningless.
++    # Trees we never want to commit into:
++    #   - generated agent-home copies, wiped on the next `mill persona build`
++    #   - vendored upstream clones (no push access; commit pollutes their history)
++    #   - the macOS trash
+     case "$repo" in
+         "$HOME"/.claude-*|"$HOME"/.codex-*|"$HOME"/.pi-*|"$HOME"/.config/goose/*)
+             printf '  %sskip%s %-60s %s(generated agent tree)%s\n' \
+@@ -131,6 +136,12 @@ for beads in "${candidates[@]}"; do
+             skipped=$((skipped + 1))
+             continue
+             ;;
++        "$HOME"/.Trash/*|*/_vendor/*)
++            printf '  %sskip%s %-60s %s(vendored / trash)%s\n' \
++                "$DIM" "$NC" "$label" "$DIM" "$NC"
++            skipped=$((skipped + 1))
++            continue
++            ;;
+     esac
+ 
+     if ! git_dir=$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null); then
+-- 
+2.50.1 (Apple Git-155)
+

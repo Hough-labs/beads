@@ -1,7 +1,7 @@
-From 08b1d3c1daa6498d48c9e73836e5afe3458a2644 Mon Sep 17 00:00:00 2001
+From 7b3e0687a29a2802ad1ae4da40e0354751471d68 Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Sun, 31 May 2026 14:59:09 -0400
-Subject: [PATCH 13/18] docs: drop stale bd merge references and website file
+Subject: [PATCH 13/19] docs: drop stale bd merge references and website file
  removed upstream
 
 Squashed: drop stale bd merge references (Phase 3 removal) across docs,
@@ -9,13 +9,12 @@ and remove website/docs/cli-reference/issues.md (deleted upstream in v1.0.4).
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 ---
- docs/ADVANCED.md                              | 58 +------------------
- docs/CLI_REFERENCE.md                         | 21 +++++++
- docs/GIT_INTEGRATION.md                       | 58 ++++++-------------
- docs/TROUBLESHOOTING.md                       |  3 +-
- .../skills/beads/resources/CLI_REFERENCE.md   |  5 +-
- website/docs/reference/advanced.md            | 14 -----
- 6 files changed, 44 insertions(+), 115 deletions(-)
+ docs/ADVANCED.md                   |  58 +---------
+ docs/CLI_REFERENCE.md              | 171 ++++++++++++++++++++++++++++-
+ docs/GIT_INTEGRATION.md            |  58 +++-------
+ docs/TROUBLESHOOTING.md            |   3 +-
+ website/docs/reference/advanced.md |  14 ---
+ 5 files changed, 186 insertions(+), 118 deletions(-)
 
 diff --git a/docs/ADVANCED.md b/docs/ADVANCED.md
 index e051568f6..0bfbf952f 100644
@@ -101,46 +100,232 @@ index e051568f6..0bfbf952f 100644
  
  Git worktrees work with bd. Each worktree can have its own `.beads` directory, or worktrees can share a database via redirects (see [Database Redirects](#database-redirects)).
 diff --git a/docs/CLI_REFERENCE.md b/docs/CLI_REFERENCE.md
-index 74da30a49..5e9d6a21d 100644
+index c129a046e..8f8004974 100644
 --- a/docs/CLI_REFERENCE.md
 +++ b/docs/CLI_REFERENCE.md
-@@ -353,6 +353,7 @@ bd close [id...] [flags]
+@@ -44,6 +44,9 @@ Reference for bd Latest. Generated from `bd help --all`.
+ - [bd q](#bd-q) — Quick capture: create issue and output only ID
+ - [bd query](#bd-query) — Query issues using a simple query language
+ - [bd reopen](#bd-reopen) — Reopen one or more closed issues
++- [bd req](#bd-req) — Link beads to requirement IDs
++  - [bd req find](#bd-req-find) — Find beads linked to a requirement
++  - [bd req list](#bd-req-list) — Show requirements linked to a bead
+ - [bd search](#bd-search) — Search issues by text query
+ - [bd set-state](#bd-set-state) — Set operational state (creates event + updates label)
+ - [bd show](#bd-show) — Show issue details
+@@ -66,6 +69,7 @@ Reference for bd Latest. Generated from `bd help --all`.
+ - [bd stale](#bd-stale) — Show stale issues (not updated recently)
+ - [bd status](#bd-status) — Show issue database overview and statistics
+ - [bd statuses](#bd-statuses) — List valid issue statuses
++- [bd trace](#bd-trace) — Requirement traceability summary
+ - [bd types](#bd-types) — List valid issue types
  
- **Flags:**
- 
-+<<<<<<< HEAD
+ ### Dependencies & Structure:
+@@ -102,7 +106,12 @@ Reference for bd Latest. Generated from `bd help --all`.
+   - [bd backup sync](#bd-backup-sync) — Push database to configured Dolt backup
+ - [bd branch](#bd-branch) — List or create branches
+ - [bd export](#bd-export) — Export issues to JSONL format
+-- [bd federation](#bd-federation) — Manage peer-to-peer federation (requires CGO)
++- [bd federation](#bd-federation) — Manage peer-to-peer federation with other workspaces
++  - [bd federation add-peer](#bd-federation-add-peer) — Add a federation peer with optional SQL credentials
++  - [bd federation list-peers](#bd-federation-list-peers) — List configured federation peers
++  - [bd federation remove-peer](#bd-federation-remove-peer) — Remove a federation peer
++  - [bd federation status](#bd-federation-status) — Show federation sync status
++  - [bd federation sync](#bd-federation-sync) — Synchronize with a peer town
+ - [bd import](#bd-import) — Import issues from a JSONL file or stdin into the database
+ - [bd restore](#bd-restore) — Restore full history of a compacted issue from Dolt history
+ - [bd vc](#bd-vc) — Version control operations
+@@ -1212,6 +1221,39 @@ bd reopen [id...] [flags]
+   -r, --reason string   Reason for reopening
  ```
-       --claim-next           Automatically claim the next highest priority available issue
-       --continue             Auto-advance to next step in molecule
-@@ -362,6 +363,26 @@ bd close [id...] [flags]
-       --reason-file string   Read close reason from file (use - for stdin)
-       --session string       Claude Code session ID (or set CLAUDE_SESSION_ID env var)
-       --suggest-next         Show newly unblocked issues after closing
-+||||||| parent of c3c17e84c (docs: drop stale bd merge references after Phase 3 removal)
-+```bash
-+# Find and merge duplicate issues
-+bd duplicates                                          # Show all duplicates
-+bd duplicates --auto-merge                             # Automatically merge all
-+bd duplicates --dry-run                                # Preview merge operations
+ 
++### bd req
 +
-+# Merge specific duplicate issues
-+bd merge <source-id...> --into <target-id> --json      # Consolidate duplicates
-+bd merge bd-42 bd-43 --into bd-41 --dry-run            # Preview merge
-+=======
-+```bash
-+# Find and merge duplicate issues
-+bd duplicates                                          # Show all duplicates
-+bd duplicates --auto-merge                             # Automatically merge all
-+bd duplicates --dry-run                                # Preview merge operations
++Link one or more requirement IDs to a bead.
 +
-+# Mark a single issue as a duplicate of a canonical one
-+bd duplicate bd-42 --of bd-41                          # Closes bd-42, links to bd-41
-+>>>>>>> c3c17e84c (docs: drop stale bd merge references after Phase 3 removal)
++Sets the spec_id field to the first requirement ID. If multiple IDs are
++provided, all are stored in metadata.requirements.
++
++Examples:
++  bd req bd-abc R-001                  # Link single requirement
++  bd req bd-abc R-001 R-002 R-003      # Link multiple requirements
++  bd req list bd-abc                    # Show linked requirements
++  bd req find R-001                     # Find beads linked to R-001
++
++```
++bd req <bead-id> <requirement-id> [requirement-id...]
++```
++
++#### bd req find
++
++Find beads linked to a requirement
++
++```
++bd req find <requirement-id>
++```
++
++#### bd req list
++
++Show requirements linked to a bead
++
++```
++bd req list <bead-id>
++```
++
+ ### bd search
+ 
+ Search issues across title and ID (excludes closed issues by default).
+@@ -1739,6 +1781,26 @@ Examples:
+ bd statuses
  ```
  
- ### bd comment
++### bd trace
++
++Show which requirements have beads and their status breakdown.
++
++Queries all beads with spec_id set and groups by requirement ID.
++
++Examples:
++  bd trace                          # All requirements
++  bd trace --spec-prefix auth       # Only auth.* requirements
++
++```
++bd trace [flags]
++```
++
++**Flags:**
++
++```
++      --spec-prefix string   Filter by spec_id prefix
++```
++
+ ### bd types
+ 
+ List all valid issue types that can be used with bd create --type.
+@@ -2373,19 +2435,116 @@ bd export [flags]
+ 
+ ### bd federation
+ 
+-Federation commands require CGO and the Dolt storage backend.
+-
+-This binary was built without CGO support. To use federation features:
+-  1. Use pre-built binaries from GitHub releases, or
+-  2. Build from source with CGO enabled
++Manage peer-to-peer federation between Dolt-backed beads databases.
+ 
+ Federation enables synchronized issue tracking across multiple workspaces,
+ each maintaining their own Dolt database while sharing updates via remotes.
+ 
++Requires the Dolt storage backend.
++
+ ```
+ bd federation
+ ```
+ 
++#### bd federation add-peer
++
++Add a new federation peer remote with optional SQL user authentication.
++
++The URL can be:
++  - dolthub://org/repo      DoltHub hosted repository
++  - host:port/database      Direct dolt sql-server connection
++  - file:///path/to/repo    Local file path (for testing)
++
++Credentials are encrypted and stored locally. They are used automatically
++when syncing with the peer. If --user is provided without --password,
++you will be prompted for the password interactively.
++
++Examples:
++  bd federation add-peer town-beta dolthub://acme/town-beta-beads
++  bd federation add-peer town-gamma 192.168.1.100:3306/beads --user sync-bot
++  bd federation add-peer partner https://partner.example.com/beads --user admin --password secret
++
++```
++bd federation add-peer <name> <url> [flags]
++```
++
++**Flags:**
++
++```
++  -p, --password string      SQL password (prompted if --user set without --password)
++      --sovereignty string   Sovereignty tier (T1, T2, T3, T4)
++  -u, --user string          SQL username for authentication
++```
++
++#### bd federation list-peers
++
++List configured federation peers
++
++```
++bd federation list-peers
++```
++
++#### bd federation remove-peer
++
++Remove a federation peer
++
++```
++bd federation remove-peer <name>
++```
++
++#### bd federation status
++
++Show synchronization status with peer towns.
++
++Displays:
++  - Configured peers and their URLs
++  - Commits ahead/behind each peer
++  - Whether there are unresolved conflicts
++
++Examples:
++  bd federation status                    # Status for all peers
++  bd federation status --peer town-beta   # Status for specific peer
++
++```
++bd federation status [--peer name] [flags]
++```
++
++**Flags:**
++
++```
++      --peer string   Specific peer to check
++```
++
++#### bd federation sync
++
++Pull from and push to peer towns.
++
++Without --peer, syncs with all configured peers.
++With --peer, syncs only with the specified peer.
++
++Handles merge conflicts using the configured strategy:
++  --strategy ours    Keep local changes on conflict
++  --strategy theirs  Accept remote changes on conflict
++
++If no strategy is specified and conflicts occur, the sync will pause
++and report which tables have conflicts for manual resolution.
++
++Examples:
++  bd federation sync                      # Sync with all peers
++  bd federation sync --peer town-beta     # Sync with specific peer
++  bd federation sync --strategy theirs    # Auto-resolve using remote values
++
++```
++bd federation sync [--peer name] [flags]
++```
++
++**Flags:**
++
++```
++      --peer string       Specific peer to sync with
++      --strategy string   Conflict resolution strategy (ours|theirs)
++```
++
+ ### bd import
+ 
+ Import issues from a JSONL file (newline-delimited JSON) into the database.
 diff --git a/docs/GIT_INTEGRATION.md b/docs/GIT_INTEGRATION.md
-index 7523be957..6d0bdbfd0 100644
+index ffe609cbb..27a1aad6e 100644
 --- a/docs/GIT_INTEGRATION.md
 +++ b/docs/GIT_INTEGRATION.md
 @@ -120,17 +120,10 @@ push = ["util", "exec", "--", "sh", "-c", "bd dolt commit && bd dolt push && jj
@@ -165,7 +350,7 @@ index 7523be957..6d0bdbfd0 100644
  
  ## Git Hooks
  
-@@ -309,40 +302,25 @@ See [MULTI_REPO_MIGRATION.md](MULTI_REPO_MIGRATION.md) for complete guide.
+@@ -311,40 +304,25 @@ See [MULTI_REPO_MIGRATION.md](MULTI_REPO_MIGRATION.md) for complete guide.
  
  The Dolt database directory (`.beads/dolt/`) should be gitignored, not tracked via LFS or regular git.
  
@@ -221,10 +406,10 @@ index 7523be957..6d0bdbfd0 100644
  ## See Also
  
 diff --git a/docs/TROUBLESHOOTING.md b/docs/TROUBLESHOOTING.md
-index ec89daf7f..bed014097 100644
+index 27870456e..cf71134b6 100644
 --- a/docs/TROUBLESHOOTING.md
 +++ b/docs/TROUBLESHOOTING.md
-@@ -805,7 +805,8 @@ Agents may not realize an issue already exists. Prevention strategies:
+@@ -840,7 +840,8 @@ Agents may not realize an issue already exists. Prevention strategies:
  - Have agents search first: `bd list --json | grep "title"`
  - Use labels to mark auto-created issues: `bd create "..." -l auto-generated`
  - Review and deduplicate periodically: `bd list | sort`
@@ -234,22 +419,6 @@ index ec89daf7f..bed014097 100644
  
  ### Agent gets confused by complex dependencies
  
-diff --git a/plugins/beads/skills/beads/resources/CLI_REFERENCE.md b/plugins/beads/skills/beads/resources/CLI_REFERENCE.md
-index 566fd5197..edaf918ee 100644
---- a/plugins/beads/skills/beads/resources/CLI_REFERENCE.md
-+++ b/plugins/beads/skills/beads/resources/CLI_REFERENCE.md
-@@ -468,9 +468,8 @@ bd duplicates                                          # Show all duplicates
- bd duplicates --auto-merge                             # Automatically merge all
- bd duplicates --dry-run                                # Preview merge operations
- 
--# Merge specific duplicate issues
--bd merge <source-id...> --into <target-id> --json      # Consolidate duplicates
--bd merge bd-42 bd-43 --into bd-41 --dry-run            # Preview merge
-+# Mark a single issue as a duplicate of a canonical one
-+bd duplicate bd-42 --of bd-41                          # Closes bd-42, links to bd-41
- ```
- 
- ### Compaction (Memory Decay)
 diff --git a/website/docs/reference/advanced.md b/website/docs/reference/advanced.md
 index c065eb3fd..40d8d9639 100644
 --- a/website/docs/reference/advanced.md

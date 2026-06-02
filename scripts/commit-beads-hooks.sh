@@ -17,6 +17,9 @@
 #     ~/.config/goose/*) — these hold read-only persona skill copies that are
 #     wiped on every `mill persona build`, so committing shim churn there is
 #     pointless (and their .git is often read-only)
+#   - vendored upstream clones (~/code/_vendor/*) — third-party repos we have
+#     no push access to; a local shim commit just pollutes their history
+#   - the macOS trash (~/.Trash/*)
 #   - repos with no *tracked* changes under .beads/hooks/ (untracked or
 #     gitignored shims are left alone — nothing to commit)
 #
@@ -122,11 +125,19 @@ for beads in "${candidates[@]}"; do
     fi
     seen_repos+=("$repo")
 
-    # Generated agent-home trees: read-only persona skill copies, wiped on the
-    # next `mill persona build`. Committing shim churn there is meaningless.
+    # Trees we never want to commit into:
+    #   - generated agent-home copies, wiped on the next `mill persona build`
+    #   - vendored upstream clones (no push access; commit pollutes their history)
+    #   - the macOS trash
     case "$repo" in
         "$HOME"/.claude-*|"$HOME"/.codex-*|"$HOME"/.pi-*|"$HOME"/.config/goose/*)
             printf '  %sskip%s %-60s %s(generated agent tree)%s\n' \
+                "$DIM" "$NC" "$label" "$DIM" "$NC"
+            skipped=$((skipped + 1))
+            continue
+            ;;
+        "$HOME"/.Trash/*|*/_vendor/*)
+            printf '  %sskip%s %-60s %s(vendored / trash)%s\n' \
                 "$DIM" "$NC" "$label" "$DIM" "$NC"
             skipped=$((skipped + 1))
             continue

@@ -1,7 +1,7 @@
-From 1fe9581f5c14b48ff9d328023b22ef0d613c4986 Mon Sep 17 00:00:00 2001
+From 773c7445b888f4f839f21438bf2fbea82dc72857 Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Sun, 31 May 2026 14:59:09 -0400
-Subject: [PATCH 08/18] build: install bd to native ~/go/bin, auto-install on
+Subject: [PATCH 08/19] build: install bd to native ~/go/bin, auto-install on
  push
 
 Squashed install-path evolution: install to GOBIN on push, then switch
@@ -26,7 +26,7 @@ index aaae6088a..c45d8f1e6 100755
 +echo "beads: rebuilding and installing to ~/go/bin..."
 +make install-force
 diff --git a/Makefile b/Makefile
-index cf1769c80..3856e7de0 100644
+index 8caf59d71..3aefbe0a0 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -19,7 +19,7 @@ GIT_BUILD := $(shell git rev-parse --short HEAD)
@@ -38,7 +38,7 @@ index cf1769c80..3856e7de0 100644
  endif
  
  # Dolt backend requires CGO for embedded database support.
-@@ -159,8 +159,21 @@ else
+@@ -160,8 +160,21 @@ else
  	@cp $(BUILD_DIR)/bd $(INSTALL_DIR)/bd
  	@echo "Installed bd to $(INSTALL_DIR)/bd"
  	@rm -f $(INSTALL_DIR)/beads

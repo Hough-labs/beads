@@ -1,7 +1,7 @@
-From 662dcdd19173a91b9742b5928865a3dc0b2eea6b Mon Sep 17 00:00:00 2001
+From feba04b351cb904d7d7b4889c92dab40505dd01d Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Wed, 8 Apr 2026 10:31:55 -0400
-Subject: [PATCH 07/18] fix(rename-prefix): three correctness bugs in repair +
+Subject: [PATCH 07/19] fix(rename-prefix): three correctness bugs in repair +
  simple rename
 
 Three independent bugs in `bd rename-prefix` could corrupt a database
@@ -38,14 +38,13 @@ Adds three regression tests:
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 ---
- cmd/bd/rename_prefix.go               |  27 ++++-
- cmd/bd/rename_prefix_repair_test.go   | 167 ++++++++++++++++++++++++++
- cmd/bd/rename_prefix_test.go          |  73 +++++++++++
- internal/storage/issueops/bulk_ops.go |  11 +-
- 4 files changed, 270 insertions(+), 8 deletions(-)
+ cmd/bd/rename_prefix.go             |  27 ++++-
+ cmd/bd/rename_prefix_repair_test.go | 167 ++++++++++++++++++++++++++++
+ cmd/bd/rename_prefix_test.go        |  73 ++++++++++++
+ 3 files changed, 263 insertions(+), 4 deletions(-)
 
 diff --git a/cmd/bd/rename_prefix.go b/cmd/bd/rename_prefix.go
-index f6e18318e..1222fa991 100644
+index 71be16b48..dd8ac25b5 100644
 --- a/cmd/bd/rename_prefix.go
 +++ b/cmd/bd/rename_prefix.go
 @@ -250,11 +250,23 @@ func repairPrefixes(ctx context.Context, st storage.DoltStorage, actorName strin
@@ -76,7 +75,7 @@ index f6e18318e..1222fa991 100644
  		}
  		renameMap[is.issue.ID] = newID
  		usedIDs[newID] = true
-@@ -379,6 +391,13 @@ func renamePrefixInDB(ctx context.Context, oldPrefix, newPrefix string, issues [
+@@ -361,6 +373,13 @@ func renamePrefixInDB(ctx context.Context, oldPrefix, newPrefix string, issues [
  
  	for _, issue := range issues {
  		oldID := issue.ID
@@ -346,37 +345,6 @@ index cbc5974b5..dabfcf66d 100644
 +		t.Fatalf("regression: rename produced double-prefixed ID %q", doubled.ID)
 +	}
 +}
-diff --git a/internal/storage/issueops/bulk_ops.go b/internal/storage/issueops/bulk_ops.go
-index 844a6a42b..5eab506f8 100644
---- a/internal/storage/issueops/bulk_ops.go
-+++ b/internal/storage/issueops/bulk_ops.go
-@@ -312,10 +312,13 @@ func updateWispIDInTx(ctx context.Context, tx *sql.Tx, oldID, newID string, issu
- 
- // RenameDependencyPrefixInTx updates the prefix in all dependency records.
- func RenameDependencyPrefixInTx(ctx context.Context, tx *sql.Tx, oldPrefix, newPrefix string) error {
-+	// Anchor LIKE on the trailing hyphen so an old prefix that is a substring
-+	// of another live prefix (e.g. 'ba' vs 'bastion') only matches its own
-+	// rows. SUBSTRING offset is LENGTH(oldPrefix)+2 to skip the hyphen.
- 	_, err := tx.ExecContext(ctx, `
- 		UPDATE dependencies
--		SET issue_id = CONCAT(?, SUBSTRING(issue_id, LENGTH(?) + 1))
--		WHERE issue_id LIKE CONCAT(?, '%')
-+		SET issue_id = CONCAT(?, '-', SUBSTRING(issue_id, LENGTH(?) + 2))
-+		WHERE issue_id LIKE CONCAT(?, '-%')
- 	`, newPrefix, oldPrefix, oldPrefix)
- 	if err != nil {
- 		return fmt.Errorf("update issue_id prefix in dependencies: %w", err)
-@@ -323,8 +326,8 @@ func RenameDependencyPrefixInTx(ctx context.Context, tx *sql.Tx, oldPrefix, newP
- 
- 	_, err = tx.ExecContext(ctx, `
- 		UPDATE dependencies
--		SET depends_on_id = CONCAT(?, SUBSTRING(depends_on_id, LENGTH(?) + 1))
--		WHERE depends_on_id LIKE CONCAT(?, '%')
-+		SET depends_on_id = CONCAT(?, '-', SUBSTRING(depends_on_id, LENGTH(?) + 2))
-+		WHERE depends_on_id LIKE CONCAT(?, '-%')
- 	`, newPrefix, oldPrefix, oldPrefix)
- 	if err != nil {
- 		return fmt.Errorf("update depends_on_id prefix in dependencies: %w", err)
 -- 
 2.50.1 (Apple Git-155)
 

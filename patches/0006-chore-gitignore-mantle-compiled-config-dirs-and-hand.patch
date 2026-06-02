@@ -1,7 +1,7 @@
-From 413321e70ec5ccc8e04e82e4c37e7dffab6159d7 Mon Sep 17 00:00:00 2001
+From 987aa519a60e9f956e7d462e85fda54446dbb819 Mon Sep 17 00:00:00 2001
 From: Hunter B Hough <git@hough.ink>
 Date: Sun, 31 May 2026 14:59:08 -0400
-Subject: [PATCH 06/18] chore: gitignore mantle-compiled config dirs and
+Subject: [PATCH 06/19] chore: gitignore mantle-compiled config dirs and
  handoffs
 
 Squashed three gitignore additions: mantle-compiled agent config dirs
@@ -13,13 +13,13 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  1 file changed, 7 insertions(+)
 
 diff --git a/.gitignore b/.gitignore
-index 969973289..58fc9e4a5 100644
+index 677673b2f..0b59b8819 100644
 --- a/.gitignore
 +++ b/.gitignore
-@@ -135,3 +135,10 @@ bd_test
+@@ -138,3 +138,10 @@ bd_test
  
  # Beads / Dolt files (added by bd init)
- .beads-credential-key
+ .beads/proxieddb/
 +
 +# Mantle-compiled agent config (generated, do not commit)
 +.pi/
